@@ -295,12 +295,12 @@ export const ParticleScene: React.FC = () => {
     };
     window.addEventListener('mousemove', onMouseMove);
 
-    // 8. Native Scroll Engine (bulletproof — bypasses all React/GSAP conflicts)
+    // 8. Native Scroll Engine — progress based on the 300vh scroll container only
     const handleScroll = () => {
-      const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
-      if (maxScroll <= 0) return; 
-      
-      const scrollFraction = Math.max(0, Math.min(1, window.scrollY / maxScroll));
+      // The 3D morph lives in the first 300vh. Everything after is the carousel overlay.
+      // We pin uProgress to the 300vh zone so the graph fully completes before the cards appear.
+      const scrollZoneHeight = window.innerHeight * 3; // 300vh in pixels
+      const scrollFraction = Math.max(0, Math.min(1, window.scrollY / (scrollZoneHeight - window.innerHeight)));
       material.uniforms.uProgress.value = scrollFraction * 2.0;
 
       if (scrollFraction > 0.5) {
