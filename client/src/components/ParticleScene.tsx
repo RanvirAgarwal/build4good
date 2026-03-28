@@ -94,16 +94,26 @@ export const ParticleScene: React.FC = () => {
             currentPos = mix(position, aSwarm, uProgress);
             currentColor = mix(aColorEarth, aColorSwarm, uProgress);
             
-            // <-- NEW: Cinematic Comet Motion on the Landing Page
-            // If we are on State 0 and this particle is a threat, orbit it rapidly
+            // <-- NEW: Minimalist Gravitational Comet Strikes
             if (uProgress < 0.1 && aIsThreat > 0.5) {
-                float angle = uTime * 2.0 + currentPos.y;
-                float radius = length(currentPos.xz);
-                currentPos.x = cos(angle) * radius;
-                currentPos.z = sin(angle) * radius;
+                // Extract the random time offset we packed into the float
+                float randomOffset = fract(aIsThreat);
                 
-                // Add a slight pulse
-                currentPos *= 1.0 + sin(uTime * 5.0 + currentPos.x) * 0.02;
+                // Create a repeating loop (0.0 to 1.0) for each comet
+                float cycle = fract(uTime * 0.3 + randomOffset);
+                
+                // Exponential acceleration curve (starts slow, gets very fast)
+                float easeIn = cycle * cycle * cycle * cycle; 
+                
+                // Original position is deep space. Scale it down to Earth's radius (6.5)
+                float currentRadius = length(currentPos);
+                float targetScale = 6.4 / currentRadius; // Stop just above the surface
+                
+                // Pull the particle inward based on the acceleration curve
+                currentPos *= mix(1.0, targetScale, easeIn);
+                
+                // Make them glow brighter as they hit the atmosphere
+                currentColor += vec3(easeIn * 0.5); 
             }
 
           } else {

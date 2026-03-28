@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 
 export const PARTICLE_COUNT = 15000;
-const EARTH_POINTS = 11000;
-const THREAT_POINTS = 4000;
+const EARTH_POINTS = 14850;
+const THREAT_POINTS = 150;
 
 // 1. STATE 0: The Earth + The Incoming Comets
 export const generateEarth = async (): Promise<{positions: Float32Array, colors: Float32Array, isThreat: Float32Array}> => {
@@ -46,21 +46,25 @@ export const generateEarth = async (): Promise<{positions: Float32Array, colors:
         isThreat[i] = 0.0; // It's Earth
       }
 
-      // --- 2. Generate the Incoming Comets (Remaining 4,000 points) ---
+      // --- 2. Generate the Incoming Comets (Remaining 150 points) ---
       for (let i = EARTH_POINTS; i < PARTICLE_COUNT; i++) {
         const theta = Math.random() * Math.PI * 2;
         const phi = Math.acos(1 - 2 * Math.random());
-        const threatR = R + 1.5 + Math.random() * 8.0; // Spread outside Earth
+        
+        // Spawn them WAY out in deep space so they have room to fall
+        const threatR = 20.0 + Math.random() * 20.0; 
 
         positions[i * 3] = threatR * Math.sin(phi) * Math.cos(theta);
         positions[i * 3 + 1] = threatR * Math.cos(phi);
         positions[i * 3 + 2] = threatR * Math.sin(phi) * Math.sin(theta);
 
-        // Menacing Fiery Orange/Red Colors
-        colors[i * 3] = 0.9 + Math.random() * 0.1; // R
-        colors[i * 3 + 1] = Math.random() * 0.4;     // G
-        colors[i * 3 + 2] = 0.0;                     // B
-        isThreat[i] = 1.0; // Mark as Threat for the Shader
+        // Bright, burning orange/white colors
+        colors[i * 3] = 1.0;                           // R
+        colors[i * 3 + 1] = 0.3 + Math.random() * 0.4; // G
+        colors[i * 3 + 2] = 0.0;                       // B
+        
+        // HACK: Pack the threat flag (1.0) AND a random time offset into the same float!
+        isThreat[i] = 1.0 + Math.random(); 
       }
 
       resolve({ positions, colors, isThreat });
