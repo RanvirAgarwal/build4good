@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { NeoAsteroid } from './nasaApi';
 
 export const PARTICLE_COUNT = 15000;
 const EARTH_POINTS = 14850;
@@ -100,35 +101,59 @@ export const generateSwarm = () => {
   return { positions, colors };
 };
 
-// 3. STATE 2: The Structured 3D Graph
-export const generateMatrix = () => {
+// 3. STATE 2: The Structured 3D Graph (Real NASA Data)
+export const generateMatrix = (nasaData?: NeoAsteroid[]) => {
   const positions = new Float32Array(PARTICLE_COUNT * 3);
   const colors = new Float32Array(PARTICLE_COUNT * 3);
-  
-  for (let i = 0; i < PARTICLE_COUNT; i++) {
-    // Structured Grid-like spread
-    let x = (Math.random() * 20) - 10; // X bounds: -10 to 10
-    let y = (Math.random() * 10) - 5;  // Y bounds: -5 to 5
-    
-    // NARRATIVE FIX: The Danger Quadrant (Top Left) MUST be empty.
-    // If it's close (x < -2) and big (y > -1), push it down to the tiny section!
-    if (x < -2.0 && y > -1.0) {
-        y -= (Math.random() * 3.5 + 1.0); 
-    }
+  const dataFlags = new Float32Array(PARTICLE_COUNT); // 1.0 = real data, 0.0 = filler (hide it)
 
-    // Flatter Z-axis for a "glass slab" data look, rather than a messy cloud
-    let z = (Math.random() - 0.5) * 1.5; 
+  const realCount = nasaData ? nasaData.length : 0;
+
+  // --- Map real NASA asteroids to log-scale scatter plot coordinates ---
+  for (let i = 0; i < realCount; i++) {
+    const neo = nasaData![i];
+
+    // X axis: log10 of miss distance in km (range ~1 to ~8 → mapped to -10..10)
+    const logDist = Math.log10(Math.max(neo.missDistanceKm, 1));
+    const x = (logDist / 8.0) * 20.0 - 10.0;
+
+    // Y axis: log10 of diameter in km (range ~-2 to ~1 → mapped to -5..5)
+    const logSize = Math.log10(Math.max(neo.estimatedDiameterKm, 0.001));
+    const y = ((logSize + 2) / 3.0) * 10.0 - 5.0;
+
+    // Z axis: slight depth for 3D feel
+    const z = (Math.random() - 0.5) * 1.5;
 
     positions[i * 3] = x;
     positions[i * 3 + 1] = y;
     positions[i * 3 + 2] = z;
 
-    // Intensity Heatmap: Hotter/Brighter in the Top Right
-    const intensity = (y + 5) / 10; 
-    colors[i * 3] = 0.8 + (intensity * 0.2); 
-    colors[i * 3 + 1] = intensity * 0.6;     
-    colors[i * 3 + 2] = 0.1;                
+    // Color: hazardous = bright red/orange, safe = amber/yellow
+    if (neo.isPotentiallyHazardous) {
+      colors[i * 3] = 1.0;
+      colors[i * 3 + 1] = 0.15;
+      colors[i * 3 + 2] = 0.05;
+    } else {
+      const intensity = (y + 5) / 10;
+      colors[i * 3] = 0.8 + intensity * 0.2;
+      colors[i * 3 + 1] = 0.3 + intensity * 0.4;
+      colors[i * 3 + 2] = 0.1;
+    }
+    dataFlags[i] = 1.0; // Real data particle
   }
-  
-  return { positions, colors };
+
+  // --- Filler particles: collapse them to origin so the shader can hide them ---
+  for (let i = realCount; i < PARTICLE_COUNT; i++) {
+    // Place them at origin (they'll be size 0 in the shader)
+    positions[i * 3] = 0;
+    positions[i * 3 + 1] = 0;
+    positions[i * 3 + 2] = 0;
+
+    colors[i * 3] = 0.0;
+    colors[i * 3 + 1] = 0.0;
+    colors[i * 3 + 2] = 0.0;
+    dataFlags[i] = 0.0; // Filler — shader will set gl_PointSize = 0
+  }
+
+  return { positions, colors, dataFlags };
 };

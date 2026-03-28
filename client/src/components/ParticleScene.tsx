@@ -1,10 +1,8 @@
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import gsap from 'gsap';
-import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { generateEarth, generateSwarm, generateMatrix, PARTICLE_COUNT } from '../utils/particleMath';
-
-gsap.registerPlugin(ScrollTrigger);
+import { fetchNasaData } from '../utils/nasaApi';
 
 export const ParticleScene: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -34,9 +32,9 @@ export const ParticleScene: React.FC = () => {
     const stars = new THREE.Points(starGeo, starMat);
     scene.add(stars);
 
-    // 3. Generate Data States
+    // 3. Generate Data States (Matrix starts as mock, updated async with real NASA data)
     const swarm = generateSwarm();
-    const matrix = generateMatrix();
+    const matrix = generateMatrix(); // Initial mock — will be replaced when NASA data arrives
 
     // Temporary placeholder arrays so the scene doesn't crash before the image loads
     const tempEarthPos = new Float32Array(PARTICLE_COUNT * 3);
@@ -52,17 +50,23 @@ export const ParticleScene: React.FC = () => {
     geometry.setAttribute('aColorEarth', new THREE.BufferAttribute(tempEarthCol, 3));
     geometry.setAttribute('aColorSwarm', new THREE.BufferAttribute(swarm.colors, 3));
     geometry.setAttribute('aColorMatrix', new THREE.BufferAttribute(matrix.colors, 3));
-    geometry.setAttribute('aIsThreat', new THREE.BufferAttribute(tempIsThreat, 1)); // Mark threat for comets
+    geometry.setAttribute('aIsThreat', new THREE.BufferAttribute(tempIsThreat, 1));
+    geometry.setAttribute('aDataFlag', new THREE.BufferAttribute(matrix.dataFlags, 1)); // 1.0=real, 0.0=filler
 
     // Asynchronously load the accurate Earth map and update the GPU
     generateEarth().then((earthData) => {
       geometry.setAttribute('position', new THREE.BufferAttribute(earthData.positions, 3));
       geometry.setAttribute('aColorEarth', new THREE.BufferAttribute(earthData.colors, 3));
       geometry.setAttribute('aIsThreat', new THREE.BufferAttribute(earthData.isThreat, 1));
-      
-      (geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
-      (geometry.attributes.aColorEarth as THREE.BufferAttribute).needsUpdate = true;
-      (geometry.attributes.aIsThreat as THREE.BufferAttribute).needsUpdate = true;
+    });
+
+    // Asynchronously fetch real NASA data and hot-swap the matrix buffers
+    fetchNasaData().then((nasaAsteroids) => {
+      console.log(`[ParticleScene] Rebuilding matrix with ${nasaAsteroids.length} real NASA asteroids`);
+      const realMatrix = generateMatrix(nasaAsteroids);
+      geometry.setAttribute('aMatrix', new THREE.BufferAttribute(realMatrix.positions, 3));
+      geometry.setAttribute('aColorMatrix', new THREE.BufferAttribute(realMatrix.colors, 3));
+      geometry.setAttribute('aDataFlag', new THREE.BufferAttribute(realMatrix.dataFlags, 1));
     });
 
     // 5. Custom GLSL Shader Material
@@ -82,43 +86,43 @@ export const ParticleScene: React.FC = () => {
         attribute vec3 aColorEarth;
         attribute vec3 aColorSwarm;
         attribute vec3 aColorMatrix;
-        attribute float aIsThreat; // <-- NEW: Identifies comets vs earth
+        attribute float aIsThreat;
+        attribute float aDataFlag; // 1.0 = real NASA data, 0.0 = filler particle
         
         varying vec3 vColor;
+        varying float vAlpha;
 
         void main() {
           vec3 currentPos;
           vec3 currentColor;
+          float alpha = 1.0;
           
           if (uProgress < 1.0) {
             currentPos = mix(position, aSwarm, uProgress);
             currentColor = mix(aColorEarth, aColorSwarm, uProgress);
             
-            // <-- NEW: Minimalist Gravitational Comet Strikes
+            // Minimalist Gravitational Comet Strikes
             if (uProgress < 0.1 && aIsThreat > 0.5) {
-                // Extract the random time offset we packed into the float
                 float randomOffset = fract(aIsThreat);
-                
-                // Create a repeating loop (0.0 to 1.0) for each comet
                 float cycle = fract(uTime * 0.3 + randomOffset);
-                
-                // Exponential acceleration curve (starts slow, gets very fast)
                 float easeIn = cycle * cycle * cycle * cycle; 
-                
-                // Original position is deep space. Scale it down to Earth's radius (6.5)
                 float currentRadius = length(currentPos);
-                float targetScale = 6.4 / currentRadius; // Stop just above the surface
-                
-                // Pull the particle inward based on the acceleration curve
+                float targetScale = 6.4 / currentRadius;
                 currentPos *= mix(1.0, targetScale, easeIn);
-                
-                // Make them glow brighter as they hit the atmosphere
                 currentColor += vec3(easeIn * 0.5); 
             }
 
           } else {
-            currentPos = mix(aSwarm, aMatrix, clamp(uProgress - 1.0, 0.0, 1.0));
-            currentColor = mix(aColorSwarm, aColorMatrix, clamp(uProgress - 1.0, 0.0, 1.0));
+            float t = clamp(uProgress - 1.0, 0.0, 1.0);
+            currentPos = mix(aSwarm, aMatrix, t);
+            currentColor = mix(aColorSwarm, aColorMatrix, t);
+
+            // Fade out filler particles as we approach the matrix state
+            // When t > 0.5 and this is a filler particle, start fading it
+            if (aDataFlag < 0.5 && t > 0.3) {
+              float fadeOut = 1.0 - smoothstep(0.3, 0.8, t);
+              alpha = fadeOut;
+            }
           }
 
           // Fluid Mouse Repel
@@ -126,7 +130,6 @@ export const ParticleScene: React.FC = () => {
           if (dist < 3.5) {
             vec3 dir = normalize(currentPos - uMouse);
             float force = smoothstep(3.5, 0.0, dist);
-            // Push outward and swirl
             currentPos += dir * force * 1.5;
             currentPos += vec3(-dir.y, dir.x, 0.0) * force * 0.8;
           }
@@ -138,21 +141,34 @@ export const ParticleScene: React.FC = () => {
           
           // If it is a comet AND we are on the landing page, make it massive
           if (aIsThreat > 0.5 && uProgress < 0.1) {
-              baseSize = 250.0; // Enlarge comets!
+              baseSize = 250.0;
           }
 
-          gl_PointSize = max((baseSize / -mvPosition.z), 1.5); 
+          // In the matrix state, make real data points larger and more visible
+          float t2 = clamp(uProgress - 1.0, 0.0, 1.0);
+          if (t2 > 0.5 && aDataFlag > 0.5) {
+              baseSize = 180.0; // Real NASA asteroids are prominent
+          }
+
+          // Filler particles shrink to nothing when fully in the matrix state
+          if (t2 > 0.8 && aDataFlag < 0.5) {
+              baseSize = 0.0;
+          }
+
+          gl_PointSize = max((baseSize / -mvPosition.z), 0.0); 
           gl_Position = projectionMatrix * mvPosition;
           vColor = currentColor;
+          vAlpha = alpha;
         }
       `,
       fragmentShader: `
         varying vec3 vColor;
+        varying float vAlpha;
         void main() {
           float dist = distance(gl_PointCoord, vec2(0.5));
           if(dist > 0.5) discard;
           float alpha = smoothstep(0.5, 0.1, dist);
-          gl_FragColor = vec4(vColor, alpha * 0.9);
+          gl_FragColor = vec4(vColor, alpha * 0.9 * vAlpha);
         }
       `,
       transparent: true,
@@ -163,10 +179,10 @@ export const ParticleScene: React.FC = () => {
     const particles = new THREE.Points(geometry, material);
     scene.add(particles);
 
-    // 6. Interactive Raycaster Logic
+    // 6. Interactive Raycaster Logic (mathematical plane only — no visible geometry)
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
-    const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0); // Z=0 plane
+    const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
 
     const onMouseMove = (e: MouseEvent) => {
       mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
@@ -180,31 +196,23 @@ export const ParticleScene: React.FC = () => {
     };
     window.addEventListener('mousemove', onMouseMove);
 
-    // 7. Native Scroll Engine (Replaces ScrollTrigger)
+    // 7. Native Scroll Engine (bulletproof — bypasses all React/GSAP conflicts)
     const handleScroll = () => {
-      // Calculate scroll fraction from 0.0 (top) to 1.0 (bottom)
       const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
-      // Safeguard against division by zero
       if (maxScroll <= 0) return; 
       
       const scrollFraction = Math.max(0, Math.min(1, window.scrollY / maxScroll));
-
-      // Map the 0->1 scroll fraction to our 0->2 shader progress
       material.uniforms.uProgress.value = scrollFraction * 2.0;
 
-      // Camera/System Rotation Logic
       if (scrollFraction > 0.5) {
-         // Lock the graph into a clean viewing angle
          const matrixPhase = (scrollFraction - 0.5) * 2.0;
          gsap.to(particles.rotation, { y: matrixPhase * 0.5, x: matrixPhase * 0.2, duration: 0.5 });
       } else {
-         // Ambient spin during Earth/Swarm phase
          gsap.to(particles.rotation, { y: scrollFraction * Math.PI, x: 0, duration: 0.5 });
       }
     };
 
-    // Attach listener and fire once to set initial state
-    window.addEventListener('scroll', handleScroll);
+    window.addEventListener('scroll', handleScroll, { passive: true });
     handleScroll();
 
     // 8. Render Loop
@@ -234,5 +242,5 @@ export const ParticleScene: React.FC = () => {
     };
   }, []);
 
-  return <div ref={containerRef} className="fixed inset-0 w-full h-full z-0 pointer-events-none" />;
+  return <div ref={containerRef} className="fixed inset-0 w-full h-full z-0" style={{ pointerEvents: 'none' }} />;
 };

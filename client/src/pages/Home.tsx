@@ -3,7 +3,7 @@ import { ParticleScene } from '../components/ParticleScene';
 
 export default function Home() {
   return (
-    <main className="relative w-full text-white font-sans overflow-x-hidden selection:bg-cyan-500/30">
+    <main className="relative w-full min-h-[300vh] text-white font-sans selection:bg-cyan-500/30">
       <ParticleScene />
 
       {/* Navigation */}

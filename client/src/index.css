@@ -87,6 +87,9 @@
   
   html {
     font-family: 'Satoshi-Variable', sans-serif;
+    overflow-y: auto !important;
+    overflow-x: hidden;
+    height: auto !important;
   }
   
   body {
