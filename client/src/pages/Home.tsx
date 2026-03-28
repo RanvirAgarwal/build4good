@@ -3,7 +3,7 @@ import { ParticleScene } from '../components/ParticleScene';
 
 export default function Home() {
   return (
-    <main className="relative w-full min-h-[300vh] text-white font-sans selection:bg-cyan-500/30">
+    <main className="relative w-full text-white font-sans selection:bg-cyan-500/30">
       <ParticleScene />
 
       {/* Navigation */}
@@ -14,7 +14,7 @@ export default function Home() {
         </div>
       </nav>
 
-      {/* 300vh scrolling container */}
+      {/* 300vh scrolling container — drives the 3D particle morph */}
       <div className="relative z-10 w-full flex flex-col" style={{ height: '300vh' }}>
         
         {/* Phase 0: The Earth (0vh to 100vh) */}
@@ -36,24 +36,153 @@ export default function Home() {
               The Swarm Approaches
             </h2>
             <p className="text-xl text-gray-300">
-              Over 4,000 near-Earth objects orbit our planet right now. The media narrative suggests constant, civilization-ending danger.
+              Over 36,000 near-Earth objects are tracked right now. The media narrative suggests constant, civilization-ending danger.
             </p>
           </div>
         </section>
 
         {/* Phase 2: The 3D Graph (200vh to 300vh) */}
-        {/* Intentionally left empty of text boxes so the graph can be viewed cleanly */}
         <section className="h-screen relative pointer-events-none">
-            {/* Absolute positioned axis labels for the graph */}
-            <div className="absolute bottom-20 right-20 text-red-400 font-mono tracking-widest text-sm uppercase opacity-70">
-              Axis X ➔ Estimated Miss Distance
-            </div>
-            <div className="absolute top-20 left-20 text-red-400 font-mono tracking-widest text-sm uppercase opacity-70" style={{ writingMode: 'vertical-rl' }}>
-              Axis Y ➔ Asteroid Diameter
-            </div>
+          {/* HTML axis labels — fade in via CSS alongside 3D sprites */}
+          <div className="absolute bottom-16 left-1/2 -translate-x-1/2 text-orange-500/60 font-mono text-xs tracking-widest uppercase">
+            X axis → Miss Distance (log scale)
+          </div>
+          <div
+            className="absolute left-8 top-1/2 -translate-y-1/2 text-orange-500/60 font-mono text-xs tracking-widest uppercase"
+            style={{ writingMode: 'vertical-rl', transform: 'translateY(-50%) rotate(180deg)' }}
+          >
+            Y axis → Estimated Diameter (log scale)
+          </div>
+          <div className="absolute top-8 left-1/2 -translate-x-1/2 text-center">
+            <p className="text-red-500/80 font-mono text-sm tracking-widest uppercase">
+              This is 1 week of real NASA data.
+            </p>
+            <p className="text-white/40 font-mono text-xs mt-1">
+              Each dot is a real tracked asteroid.
+            </p>
+          </div>
         </section>
 
       </div>
+
+      {/* ================================================================ */}
+      {/* NARRATIVE SECTION — below the 3D scroll experience               */}
+      {/* ================================================================ */}
+      <section className="relative z-20 w-full bg-[#050202] py-24">
+
+        {/* Header */}
+        <div className="max-w-4xl mx-auto px-8 md:px-16 mb-16 text-center">
+          <p className="text-orange-500 font-mono text-xs tracking-[0.4em] uppercase mb-4">The Science</p>
+          <h2 className="text-5xl md:text-6xl font-bold tracking-tighter mb-6 text-white">
+            The Reality of{' '}
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-red-500">
+              Planetary Defense.
+            </span>
+          </h2>
+          <p className="text-xl text-gray-400 max-w-2xl mx-auto leading-relaxed">
+            The graph above looks empty because{' '}
+            <span className="text-orange-400 font-semibold">space is staggeringly vast.</span>{' '}
+            Media hype relies on ignoring this scale. Here is what the data actually tells us.
+          </p>
+        </div>
+
+        {/* Horizontal swipe carousel */}
+        <div className="flex overflow-x-auto snap-x snap-mandatory gap-6 px-8 md:px-16 pb-10 w-full"
+          style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+
+          {/* Card 1 — Chelyabinsk */}
+          <article className="min-w-[85vw] md:min-w-[42vw] lg:min-w-[36vw] snap-center shrink-0 rounded-3xl p-8 flex flex-col gap-5 liquid-glass border border-white/5 bg-gradient-to-br from-orange-950/30 to-black/60">
+            <div className="flex items-center gap-3">
+              <span className="text-3xl">☄️</span>
+              <span className="text-orange-400 font-mono text-xs tracking-[0.3em] uppercase">Feb 15, 2013</span>
+            </div>
+            <h3 className="text-3xl font-bold tracking-tight text-white">
+              The Chelyabinsk Event
+            </h3>
+            <p className="text-gray-300 text-lg leading-relaxed">
+              A <span className="text-orange-400 font-semibold">20-meter</span> asteroid entered the atmosphere above Russia completely undetected. It released 30× the energy of the Hiroshima bomb, injuring 1,500 people with shockwave-broken glass.
+            </p>
+            <p className="text-gray-400 leading-relaxed">
+              The punchline? This was <em>not</em> a massive, planet-killer rock. It was a house-sized fragment—too small for our telescopes to track at the time—that snuck in from the sun's blind spot. The real risk is{' '}
+              <span className="text-white font-semibold">small, fast, and undetected.</span>
+            </p>
+            <div className="mt-auto pt-4 border-t border-white/10">
+              <p className="text-orange-500/70 font-mono text-xs tracking-widest uppercase">Diameter: ~20m · Miss distance: 0 km · Detected: No</p>
+            </div>
+          </article>
+
+          {/* Card 2 — The Danger Quadrant */}
+          <article className="min-w-[85vw] md:min-w-[42vw] lg:min-w-[36vw] snap-center shrink-0 rounded-3xl p-8 flex flex-col gap-5 liquid-glass border border-red-900/30 bg-gradient-to-br from-red-950/30 to-black/60">
+            <div className="flex items-center gap-3">
+              <span className="text-3xl">📊</span>
+              <span className="text-red-400 font-mono text-xs tracking-[0.3em] uppercase">Reading the Graph</span>
+            </div>
+            <h3 className="text-3xl font-bold tracking-tight text-white">
+              The Empty Danger Quadrant
+            </h3>
+            <p className="text-gray-300 text-lg leading-relaxed">
+              Look at the top-left of the scatter plot above. That region—{' '}
+              <span className="text-red-400 font-semibold">large AND close</span>—is completely empty. This is not a bug. It is the most important scientific fact in planetary defense.
+            </p>
+            <p className="text-gray-400 leading-relaxed">
+              Every asteroid large enough to cause civilization-level damage (<span className="text-white font-semibold">&gt;1km</span>) has been identified and is being tracked. They are all millions of miles away. We know where every one of them will be for the next 100 years. <em>None</em> are on a collision course.
+            </p>
+            <div className="mt-auto pt-4 border-t border-white/10">
+              <p className="text-red-500/70 font-mono text-xs tracking-widest uppercase">Source: NASA Center for Near Earth Object Studies (CNEOS)</p>
+            </div>
+          </article>
+
+          {/* Card 3 — DART Mission */}
+          <article className="min-w-[85vw] md:min-w-[42vw] lg:min-w-[36vw] snap-center shrink-0 rounded-3xl p-8 flex flex-col gap-5 liquid-glass border border-cyan-900/30 bg-gradient-to-br from-cyan-950/30 to-black/60">
+            <div className="flex items-center gap-3">
+              <span className="text-3xl">🚀</span>
+              <span className="text-cyan-400 font-mono text-xs tracking-[0.3em] uppercase">Sep 26, 2022</span>
+            </div>
+            <h3 className="text-3xl font-bold tracking-tight text-white">
+              NASA's DART Mission
+            </h3>
+            <p className="text-gray-300 text-lg leading-relaxed">
+              The Double Asteroid Redirection Test deliberately crashed a spacecraft into{' '}
+              <span className="text-cyan-400 font-semibold">Dimorphos</span>, a 160-meter moonlet, and successfully changed its orbital period by{' '}
+              <span className="text-cyan-300 font-bold">33 minutes.</span>
+            </p>
+            <p className="text-gray-400 leading-relaxed">
+              This proved that kinetic impactor technology works. If we detect a threat decades in advance—which our tracking systems are now capable of—we can nudge it off course. The equation has changed.{' '}
+              <span className="text-white font-semibold">We are no longer passive observers.</span>
+            </p>
+            <div className="mt-auto pt-4 border-t border-white/10">
+              <p className="text-cyan-500/70 font-mono text-xs tracking-widest uppercase">Orbital period change: 33 min · Confirmation: Hubble + Webb</p>
+            </div>
+          </article>
+
+          {/* Spacer to allow last card to snap properly */}
+          <div className="min-w-[4vw] shrink-0" />
+        </div>
+
+        {/* Scroll hint */}
+        <div className="flex items-center justify-center gap-3 mt-6 opacity-40">
+          <div className="w-8 h-[2px] bg-orange-500 rounded" />
+          <span className="text-orange-500 font-mono text-xs tracking-widest uppercase">Swipe to explore</span>
+          <div className="w-8 h-[2px] bg-orange-500 rounded" />
+        </div>
+
+        {/* Footer / CTA */}
+        <div className="max-w-2xl mx-auto px-8 mt-24 text-center">
+          <p className="text-white/20 font-mono text-xs tracking-[0.3em] uppercase mb-3">Data source</p>
+          <p className="text-white/50 text-sm leading-relaxed">
+            Visualisation powered by live data from the{' '}
+            <a
+              href="https://api.nasa.gov/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-orange-400 underline underline-offset-4 hover:text-orange-300 transition-colors pointer-events-auto"
+            >
+              NASA NeoWs API
+            </a>
+            . Updated weekly. All asteroid positions are real close-approach data.
+          </p>
+        </div>
+      </section>
     </main>
   );
 }

@@ -4,6 +4,32 @@ import gsap from 'gsap';
 import { generateEarth, generateSwarm, generateMatrix, PARTICLE_COUNT } from '../utils/particleMath';
 import { fetchNasaData } from '../utils/nasaApi';
 
+// --- Canvas-based 3D Sprite helper (no CSS2DRenderer needed) ---
+function createTextSprite(message: string, color = 'rgba(255, 80, 20, 0.9)') {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d')!;
+  ctx.clearRect(0, 0, 512, 128);
+  ctx.fillStyle = color;
+  ctx.font = 'bold 34px monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(message, 256, 64);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  const mat = new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    opacity: 0.0,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+  const sprite = new THREE.Sprite(mat);
+  sprite.scale.set(8, 2, 1);
+  return { sprite, material: mat };
+}
+
 export const ParticleScene: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -179,7 +205,58 @@ export const ParticleScene: React.FC = () => {
     const particles = new THREE.Points(geometry, material);
     scene.add(particles);
 
-    // 6. Interactive Raycaster Logic (mathematical plane only — no visible geometry)
+    // 6. Grid + Axis Labels (fade in at matrix state)
+    const gridHelper = new THREE.GridHelper(20, 10, 0x330a0a, 0x1a0505);
+    gridHelper.position.y = -5;
+    (gridHelper.material as THREE.Material).transparent = true;
+    (gridHelper.material as THREE.Material).opacity = 0;
+    scene.add(gridHelper);
+
+    // Danger quadrant highlight box (top-left)
+    const dangerGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(8, 4, 0.1));
+    const dangerMat = new THREE.LineBasicMaterial({ color: 0xff2200, transparent: true, opacity: 0 });
+    const dangerBox = new THREE.LineSegments(dangerGeo, dangerMat);
+    dangerBox.position.set(-6, 2, 0);
+    scene.add(dangerBox);
+
+    // Build axis label sprites
+    const axisGroup = new THREE.Group();
+    const xLabels = [
+      { text: '1 Lunar Dist.', x: -8.5, y: -5.5 },
+      { text: '10 Lunar Dist.', x: -1.5, y: -5.5 },
+      { text: '50M km', x:  7.5, y: -5.5 },
+    ];
+    const yLabels = [
+      { text: '50m  (House)', x: -11.5, y: -3.5 },
+      { text: '150m (Stadium)', x: -11.5, y: 0.5 },
+      { text: '1km  (Extinction)', x: -11.5, y: 4.5 },
+    ];
+
+    const allSprites: { material: THREE.SpriteMaterial }[] = [];
+
+    for (const l of xLabels) {
+      const { sprite, material: m } = createTextSprite(l.text);
+      sprite.position.set(l.x, l.y, 0);
+      axisGroup.add(sprite);
+      allSprites.push({ material: m });
+    }
+    for (const l of yLabels) {
+      const { sprite, material: m } = createTextSprite(l.text, 'rgba(255, 120, 40, 0.85)');
+      sprite.position.set(l.x, l.y, 0);
+      axisGroup.add(sprite);
+      allSprites.push({ material: m });
+    }
+
+    // Danger quadrant label
+    const { sprite: dangerLabel, material: dangerLabelMat } = createTextSprite('⚠ EMPTY DANGER ZONE', 'rgba(255, 30, 0, 1.0)');
+    dangerLabel.position.set(-6, 4.2, 0);
+    dangerLabel.scale.set(9, 2.2, 1);
+    axisGroup.add(dangerLabel);
+    allSprites.push({ material: dangerLabelMat });
+
+    scene.add(axisGroup);
+
+    // 7. Interactive Raycaster Logic (mathematical plane only — no visible geometry)
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
     const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
@@ -196,7 +273,7 @@ export const ParticleScene: React.FC = () => {
     };
     window.addEventListener('mousemove', onMouseMove);
 
-    // 7. Native Scroll Engine (bulletproof — bypasses all React/GSAP conflicts)
+    // 8. Native Scroll Engine (bulletproof — bypasses all React/GSAP conflicts)
     const handleScroll = () => {
       const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
       if (maxScroll <= 0) return; 
@@ -207,8 +284,28 @@ export const ParticleScene: React.FC = () => {
       if (scrollFraction > 0.5) {
          const matrixPhase = (scrollFraction - 0.5) * 2.0;
          gsap.to(particles.rotation, { y: matrixPhase * 0.5, x: matrixPhase * 0.2, duration: 0.5 });
+
+         // Sync grid, danger box, and axis labels with matrix morph
+         const gridOpacity = Math.min(1, (matrixPhase - 0.2) * 2.5);
+         const gridTarget = Math.max(0, gridOpacity);
+         gsap.to((gridHelper.material as THREE.Material), { opacity: gridTarget * 0.4, duration: 0.4 });
+         gsap.to(dangerMat, { opacity: gridTarget * 0.7, duration: 0.4 });
+         for (const s of allSprites) {
+           gsap.to(s.material, { opacity: gridTarget * 0.9, duration: 0.5 });
+         }
+
+         // Rotate axis group to follow the particles
+         gsap.to(axisGroup.rotation, { y: matrixPhase * 0.5, x: matrixPhase * 0.2, duration: 0.5 });
+         gsap.to(gridHelper.rotation, { y: matrixPhase * 0.5, duration: 0.5 });
+         gsap.to(dangerBox.rotation, { y: matrixPhase * 0.5, x: matrixPhase * 0.2, duration: 0.5 });
       } else {
          gsap.to(particles.rotation, { y: scrollFraction * Math.PI, x: 0, duration: 0.5 });
+         // Fade out grid when scrolling back up
+         gsap.to((gridHelper.material as THREE.Material), { opacity: 0, duration: 0.3 });
+         gsap.to(dangerMat, { opacity: 0, duration: 0.3 });
+         for (const s of allSprites) {
+           gsap.to(s.material, { opacity: 0, duration: 0.3 });
+         }
       }
     };
 
