@@ -132,7 +132,16 @@ export const ParticleScene: React.FC = () => {
           }
 
           vec4 mvPosition = modelViewMatrix * vec4(currentPos, 1.0);
-          gl_PointSize = max((110.0 / -mvPosition.z), 1.5); // Smaller points for high-res
+          
+          // Base size for Earth/Swarm/Matrix particles
+          float baseSize = 80.0; 
+          
+          // If it is a comet AND we are on the landing page, make it massive
+          if (aIsThreat > 0.5 && uProgress < 0.1) {
+              baseSize = 250.0; // Enlarge comets!
+          }
+
+          gl_PointSize = max((baseSize / -mvPosition.z), 1.5); 
           gl_Position = projectionMatrix * mvPosition;
           vColor = currentColor;
         }
@@ -171,25 +180,32 @@ export const ParticleScene: React.FC = () => {
     };
     window.addEventListener('mousemove', onMouseMove);
 
-    // 7. ScrollTrigger Animation
-    ScrollTrigger.create({
-      trigger: document.body,
-      start: "top top",
-      end: "bottom bottom",
-      scrub: 1.5,
-      onUpdate: (self) => {
-        // self.progress is 0 to 1. We multiply by 2 so uProgress goes 0 to 2.
-        material.uniforms.uProgress.value = self.progress * 2.0;
-        
-        // Rotate the system slightly during the matrix phase for perspective
-        if (self.progress > 0.5) {
-           const matrixPhase = (self.progress - 0.5) * 2.0;
-           gsap.to(particles.rotation, { y: matrixPhase * 0.5, x: matrixPhase * 0.2, duration: 0.5 });
-        } else {
-           gsap.to(particles.rotation, { y: self.progress * Math.PI, x: 0, duration: 0.5 });
-        }
+    // 7. Native Scroll Engine (Replaces ScrollTrigger)
+    const handleScroll = () => {
+      // Calculate scroll fraction from 0.0 (top) to 1.0 (bottom)
+      const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+      // Safeguard against division by zero
+      if (maxScroll <= 0) return; 
+      
+      const scrollFraction = Math.max(0, Math.min(1, window.scrollY / maxScroll));
+
+      // Map the 0->1 scroll fraction to our 0->2 shader progress
+      material.uniforms.uProgress.value = scrollFraction * 2.0;
+
+      // Camera/System Rotation Logic
+      if (scrollFraction > 0.5) {
+         // Lock the graph into a clean viewing angle
+         const matrixPhase = (scrollFraction - 0.5) * 2.0;
+         gsap.to(particles.rotation, { y: matrixPhase * 0.5, x: matrixPhase * 0.2, duration: 0.5 });
+      } else {
+         // Ambient spin during Earth/Swarm phase
+         gsap.to(particles.rotation, { y: scrollFraction * Math.PI, x: 0, duration: 0.5 });
       }
-    });
+    };
+
+    // Attach listener and fire once to set initial state
+    window.addEventListener('scroll', handleScroll);
+    handleScroll();
 
     // 8. Render Loop
     let animationId: number;
@@ -211,8 +227,8 @@ export const ParticleScene: React.FC = () => {
     return () => {
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('resize', onResize);
+      window.removeEventListener('scroll', handleScroll);
       cancelAnimationFrame(animationId);
-      ScrollTrigger.getAll().forEach(t => t.kill());
       renderer.dispose();
       if (containerRef.current) containerRef.current.innerHTML = '';
     };
