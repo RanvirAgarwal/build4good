@@ -16,16 +16,17 @@ const NEO_FEED_URL = 'https://api.nasa.gov/neo/rest/v1/feed';
 
 /**
  * Fetch 7-day asteroid feed from NASA NeoWs.
+ * @param startDate ISO date string (YYYY-MM-DD). Defaults to today.
  * Returns a flat array of parsed asteroid objects (typically 100-180 items).
  */
-export async function fetchNasaData(): Promise<NeoAsteroid[]> {
-  const today = new Date();
-  const startDate = today.toISOString().split('T')[0];
-  const endDate = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000)
+export async function fetchNasaData(startDate?: string): Promise<NeoAsteroid[]> {
+  const start = startDate ? new Date(startDate) : new Date();
+  const startStr = start.toISOString().split('T')[0];
+  const endStr = new Date(start.getTime() + 7 * 24 * 60 * 60 * 1000)
     .toISOString()
     .split('T')[0];
 
-  const url = `${NEO_FEED_URL}?start_date=${startDate}&end_date=${endDate}&api_key=${NASA_API_KEY}`;
+  const url = `${NEO_FEED_URL}?start_date=${startStr}&end_date=${endStr}&api_key=${NASA_API_KEY}`;
 
   try {
     const response = await fetch(url);
@@ -53,7 +54,7 @@ export async function fetchNasaData(): Promise<NeoAsteroid[]> {
     }
 
     asteroids.sort((a, b) => a.missDistanceKm - b.missDistanceKm);
-    console.log(`[NASA API] Fetched ${asteroids.length} asteroids for ${startDate} to ${endDate}`);
+    console.log(`[NASA API] Fetched ${asteroids.length} asteroids for ${startStr} to ${endStr}`);
     return asteroids;
   } catch (err) {
     console.error('[NASA API] Failed to fetch data, falling back to mock data:', err);
