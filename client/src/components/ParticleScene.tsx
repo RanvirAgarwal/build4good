@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import gsap from 'gsap';
 import { generateEarth, generateSwarm, generateMatrix, PARTICLE_COUNT } from '../utils/particleMath';
-import { fetchNasaData } from '../utils/nasaApi';
+import { fetchNasaData, NeoAsteroid } from '../utils/nasaApi';
 
 // --- Canvas-based 3D Sprite helper (no CSS2DRenderer needed) ---
 function createTextSprite(message: string, color = 'rgba(255, 80, 20, 0.9)') {
@@ -30,11 +30,24 @@ function createTextSprite(message: string, color = 'rgba(255, 80, 20, 0.9)') {
   return { sprite, material: mat };
 }
 
-export const ParticleScene: React.FC = () => {
+export interface HoverInfo {
+  data: NeoAsteroid;
+  x: number;
+  y: number;
+}
+
+interface ParticleSceneProps {
+  onHover?: (info: HoverInfo | null) => void;
+}
+
+export const ParticleScene: React.FC<ParticleSceneProps> = ({ onHover }) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
+
+    // Mutable ref for NASA data (populated async)
+    let nasaData: NeoAsteroid[] = [];
 
     // 1. Scene Setup (Charcoal Black Theme)
     const scene = new THREE.Scene();
@@ -89,6 +102,7 @@ export const ParticleScene: React.FC = () => {
     // Asynchronously fetch real NASA data and hot-swap the matrix buffers
     fetchNasaData().then((nasaAsteroids) => {
       console.log(`[ParticleScene] Rebuilding matrix with ${nasaAsteroids.length} real NASA asteroids`);
+      nasaData = nasaAsteroids; // Store for raycaster lookup
       const realMatrix = generateMatrix(nasaAsteroids);
       geometry.setAttribute('aMatrix', new THREE.BufferAttribute(realMatrix.positions, 3));
       geometry.setAttribute('aColorMatrix', new THREE.BufferAttribute(realMatrix.colors, 3));
@@ -144,7 +158,6 @@ export const ParticleScene: React.FC = () => {
             currentColor = mix(aColorSwarm, aColorMatrix, t);
 
             // Fade out filler particles as we approach the matrix state
-            // When t > 0.5 and this is a filler particle, start fading it
             if (aDataFlag < 0.5 && t > 0.3) {
               float fadeOut = 1.0 - smoothstep(0.3, 0.8, t);
               alpha = fadeOut;
@@ -229,23 +242,30 @@ export const ParticleScene: React.FC = () => {
     }
     scene.add(gridGroup);
 
-    // Danger quadrant highlight box (top-left of XY data space)
-    const dangerGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(8, 6, 0.05));
-    const dangerMat = new THREE.LineBasicMaterial({ color: 0xff2200, transparent: true, opacity: 0 });
-    const dangerBox = new THREE.LineSegments(dangerGeo, dangerMat);
-    dangerBox.position.set(-6, 2, -0.3);
-    scene.add(dangerBox);
+    // --- The Danger Quadrant "Warning Mat" ---
+    // A flat, glowing red footprint on the grid marking the empty close+massive zone
+    const warningMatGeo = new THREE.PlaneGeometry(8, 6);
+    const warningMatMaterial = new THREE.MeshBasicMaterial({
+      color: 0xff1100,
+      transparent: true,
+      opacity: 0.0,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const warningMat = new THREE.Mesh(warningMatGeo, warningMatMaterial);
+    warningMat.position.set(-6, 2, -0.4); // top-left quadrant of the data space
+    scene.add(warningMat);
 
     // Build axis label sprites
     const axisGroup = new THREE.Group();
 
-    // X-Axis labels along the bottom (Y = -5.8, just below the grid)
+    // X-Axis labels along the bottom
     const xLabels = [
       { text: '1 Lunar Dist.', x: -8 },
       { text: '10 Lunar Dist.', x: -1 },
       { text: '50M km', x: 7 },
     ];
-    // Y-Axis labels along the left side (X = -11.5, just outside the grid)
+    // Y-Axis labels along the left side
     const yLabels = [
       { text: '50m (House)', y: -3 },
       { text: '150m (Stadium)', y: 0.5 },
@@ -278,27 +298,47 @@ export const ParticleScene: React.FC = () => {
 
     scene.add(axisGroup);
 
-    // 7. Interactive Raycaster Logic (mathematical plane only — no visible geometry)
+    // 7. Interactive Raycaster Logic
     const raycaster = new THREE.Raycaster();
+    raycaster.params.Points!.threshold = 0.5; // generous hitbox for tiny points
     const mouse = new THREE.Vector2();
-    const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+    const mathPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
 
     const onMouseMove = (e: MouseEvent) => {
       mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
       mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
       raycaster.setFromCamera(mouse, camera);
-      const target = new THREE.Vector3();
-      const intersects = raycaster.ray.intersectPlane(plane, target);
-      if (intersects) {
-        material.uniforms.uMouse.value.copy(target);
+
+      // Mouse repel (always active)
+      const planeTarget = new THREE.Vector3();
+      const planeHit = raycaster.ray.intersectPlane(mathPlane, planeTarget);
+      if (planeHit) {
+        material.uniforms.uMouse.value.copy(planeTarget);
+      }
+
+      // Raycaster HUD — only when graph is fully formed
+      if (material.uniforms.uProgress.value < 1.8 || nasaData.length === 0) {
+        if (onHover) onHover(null);
+        document.body.style.cursor = 'default';
+        return;
+      }
+
+      const intersects = raycaster.intersectObject(particles);
+      // Only care about real NASA data (index < nasaData.length)
+      const validHit = intersects.find(hit => hit.index !== undefined && hit.index < nasaData.length);
+
+      if (validHit && validHit.index !== undefined) {
+        document.body.style.cursor = 'crosshair';
+        if (onHover) onHover({ data: nasaData[validHit.index], x: e.clientX, y: e.clientY });
+      } else {
+        document.body.style.cursor = 'default';
+        if (onHover) onHover(null);
       }
     };
     window.addEventListener('mousemove', onMouseMove);
 
     // 8. Native Scroll Engine — progress based on the 300vh scroll container only
     const handleScroll = () => {
-      // The 3D morph lives in the first 300vh. Everything after is the carousel overlay.
-      // We pin uProgress to the 300vh zone so the graph fully completes before the cards appear.
       const scrollZoneHeight = window.innerHeight * 3; // 300vh in pixels
       const scrollFraction = Math.max(0, Math.min(1, window.scrollY / (scrollZoneHeight - window.innerHeight)));
       material.uniforms.uProgress.value = scrollFraction * 2.0;
@@ -307,24 +347,24 @@ export const ParticleScene: React.FC = () => {
          const matrixPhase = (scrollFraction - 0.5) * 2.0;
          gsap.to(particles.rotation, { y: matrixPhase * 0.5, x: matrixPhase * 0.2, duration: 0.5 });
 
-         // Sync grid, danger box, and axis labels with matrix morph
+         // Sync grid, warning mat, and axis labels with matrix morph
          const gridOpacity = Math.min(1, (matrixPhase - 0.2) * 2.5);
          const gridTarget = Math.max(0, gridOpacity);
          gsap.to(gridMat, { opacity: gridTarget * 0.4, duration: 0.4 });
-         gsap.to(dangerMat, { opacity: gridTarget * 0.7, duration: 0.4 });
+         gsap.to(warningMatMaterial, { opacity: gridTarget * 0.12, duration: 0.5 }); // subtle red glow
          for (const s of allSprites) {
            gsap.to(s.material, { opacity: gridTarget * 0.9, duration: 0.5 });
          }
 
-         // Rotate axis group to follow the particles
+         // Rotate everything to follow the particles
          gsap.to(axisGroup.rotation, { y: matrixPhase * 0.5, x: matrixPhase * 0.2, duration: 0.5 });
          gsap.to(gridGroup.rotation, { y: matrixPhase * 0.5, x: matrixPhase * 0.2, duration: 0.5 });
-         gsap.to(dangerBox.rotation, { y: matrixPhase * 0.5, x: matrixPhase * 0.2, duration: 0.5 });
+         gsap.to(warningMat.rotation, { y: matrixPhase * 0.5, x: matrixPhase * 0.2, duration: 0.5 });
       } else {
          gsap.to(particles.rotation, { y: scrollFraction * Math.PI, x: 0, duration: 0.5 });
          // Fade out grid when scrolling back up
          gsap.to(gridMat, { opacity: 0, duration: 0.3 });
-         gsap.to(dangerMat, { opacity: 0, duration: 0.3 });
+         gsap.to(warningMatMaterial, { opacity: 0, duration: 0.3 });
          for (const s of allSprites) {
            gsap.to(s.material, { opacity: 0, duration: 0.3 });
          }
@@ -334,7 +374,7 @@ export const ParticleScene: React.FC = () => {
     window.addEventListener('scroll', handleScroll, { passive: true });
     handleScroll();
 
-    // 8. Render Loop
+    // 9. Render Loop
     let animationId: number;
     const animate = () => {
       animationId = requestAnimationFrame(animate);
@@ -356,10 +396,11 @@ export const ParticleScene: React.FC = () => {
       window.removeEventListener('resize', onResize);
       window.removeEventListener('scroll', handleScroll);
       cancelAnimationFrame(animationId);
+      document.body.style.cursor = 'default';
       renderer.dispose();
       if (containerRef.current) containerRef.current.innerHTML = '';
     };
-  }, []);
+  }, [onHover]);
 
   return <div ref={containerRef} className="fixed inset-0 w-full h-full z-0" style={{ pointerEvents: 'none' }} />;
 };

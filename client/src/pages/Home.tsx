@@ -1,10 +1,44 @@
-import React from 'react';
-import { ParticleScene } from '../components/ParticleScene';
+import React, { useState } from 'react';
+import { ParticleScene, HoverInfo } from '../components/ParticleScene';
 
 export default function Home() {
+  const [hoverInfo, setHoverInfo] = useState<HoverInfo | null>(null);
+
   return (
     <main className="relative w-full text-white font-sans selection:bg-cyan-500/30">
-      <ParticleScene />
+      <ParticleScene onHover={setHoverInfo} />
+
+      {/* Raycaster HUD Tooltip — tracks mouse, only visible when hovering a real asteroid */}
+      {hoverInfo && (
+        <div
+          className="fixed z-50 pointer-events-none backdrop-blur-md bg-black/80 border border-white/10 p-4 rounded-lg text-xs font-mono tracking-widest"
+          style={{ left: hoverInfo.x + 15, top: hoverInfo.y + 15 }}
+        >
+          <div className="text-white font-bold text-sm mb-2 tracking-tight">{hoverInfo.data.name}</div>
+          <div className="grid grid-cols-2 gap-x-6 gap-y-1">
+            <span className="text-white/40">DIAMETER</span>
+            <span className="text-white/80 text-right">
+              {hoverInfo.data.estimatedDiameterKm >= 1
+                ? `${hoverInfo.data.estimatedDiameterKm.toFixed(2)} km`
+                : `${(hoverInfo.data.estimatedDiameterKm * 1000).toFixed(0)} m`
+              }
+            </span>
+            <span className="text-white/40">DISTANCE</span>
+            <span className="text-white/80 text-right">
+              {hoverInfo.data.missDistanceKm >= 1e6
+                ? `${(hoverInfo.data.missDistanceKm / 1e6).toFixed(1)}M km`
+                : `${Math.round(hoverInfo.data.missDistanceKm).toLocaleString()} km`
+              }
+            </span>
+            <span className="text-white/40">VELOCITY</span>
+            <span className="text-white/80 text-right">{Math.round(hoverInfo.data.relativeVelocityKmh).toLocaleString()} km/h</span>
+            <span className="text-white/40">HAZARDOUS</span>
+            <span className={`text-right ${hoverInfo.data.isPotentiallyHazardous ? 'text-red-400' : 'text-white/50'}`}>
+              {hoverInfo.data.isPotentiallyHazardous ? 'YES' : 'NO'}
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Navigation */}
       <nav className="fixed top-0 w-full p-6 lg:p-10 flex justify-between items-center z-[100] bg-gradient-to-b from-black/50 to-transparent pointer-events-none">
@@ -48,7 +82,7 @@ export default function Home() {
               1 week of real NASA data
             </p>
             <p className="text-white/30 font-mono text-xs mt-1">
-              Each dot is a real tracked asteroid.
+              Each dot is a real tracked asteroid. Hover to inspect.
             </p>
           </div>
           <div className="absolute bottom-16 left-1/2 -translate-x-1/2 text-white/30 font-mono text-xs tracking-widest uppercase">
@@ -65,11 +99,11 @@ export default function Home() {
       </div>
 
       {/* ================================================================ */}
-      {/* NARRATIVE SECTION — placed AFTER the scroll container.            */}
-      {/* bg-[#050202] matches the scene background so it covers the fixed  */}
-      {/* 3D canvas cleanly when you scroll past the graph.                 */}
+      {/* NARRATIVE SECTION — placed AFTER the 300vh scroll container.      */}
+      {/* bg-[#0a0505] matches the scene background exactly so it          */}
+      {/* cleanly covers the fixed 3D canvas when scrolling past.          */}
       {/* ================================================================ */}
-      <section className="relative z-20 w-full min-h-screen bg-[#050202] pt-28 pb-20">
+      <section className="relative z-20 w-full min-h-screen bg-[#0a0505] pt-28 pb-20">
 
         {/* Header */}
         <div className="max-w-3xl mx-auto px-8 md:px-16 mb-20 text-center">
@@ -89,15 +123,15 @@ export default function Home() {
         >
 
           {/* Card 1 — Chelyabinsk */}
-          <article className="min-w-[80vw] md:min-w-[40vw] snap-center shrink-0 rounded-2xl p-8 flex flex-col gap-4 liquid-glass border border-white/5">
+          <article className="min-w-[80vw] md:min-w-[40vw] snap-center shrink-0 rounded-2xl p-8 flex flex-col gap-4 backdrop-blur-md bg-white/5 border border-red-500/20 hover:bg-white/10 transition-colors">
             <p className="text-white/30 font-mono text-[10px] tracking-[0.3em] uppercase">Feb 15, 2013</p>
-            <h3 className="text-2xl font-bold tracking-tight text-white">
+            <h3 className="text-2xl font-bold tracking-tight text-red-400">
               The Chelyabinsk Event
             </h3>
-            <p className="text-white/60 leading-relaxed">
+            <p className="text-gray-300 leading-relaxed">
               A 20-meter asteroid entered the atmosphere above Russia completely undetected. It released 30 times the energy of the Hiroshima bomb, injuring 1,500 people from shockwave-shattered glass.
             </p>
-            <p className="text-white/40 leading-relaxed">
+            <p className="text-gray-300/70 leading-relaxed">
               This was not a planet-killer. It was a house-sized fragment — too small for telescopes to track — that came from the sun's blind spot. The real risk has always been small, fast, and undetected.
             </p>
             <div className="mt-auto pt-4 border-t border-white/10">
@@ -106,15 +140,15 @@ export default function Home() {
           </article>
 
           {/* Card 2 — The Danger Quadrant */}
-          <article className="min-w-[80vw] md:min-w-[40vw] snap-center shrink-0 rounded-2xl p-8 flex flex-col gap-4 liquid-glass border border-white/5">
+          <article className="min-w-[80vw] md:min-w-[40vw] snap-center shrink-0 rounded-2xl p-8 flex flex-col gap-4 backdrop-blur-md bg-white/5 border border-red-500/20 hover:bg-white/10 transition-colors">
             <p className="text-white/30 font-mono text-[10px] tracking-[0.3em] uppercase">Reading the Graph</p>
-            <h3 className="text-2xl font-bold tracking-tight text-white">
+            <h3 className="text-2xl font-bold tracking-tight text-orange-400">
               The Empty Danger Quadrant
             </h3>
-            <p className="text-white/60 leading-relaxed">
+            <p className="text-gray-300 leading-relaxed">
               The top-left of the scatter plot — large and close — is completely empty. This is not a rendering error. It is the most important fact in planetary defense.
             </p>
-            <p className="text-white/40 leading-relaxed">
+            <p className="text-gray-300/70 leading-relaxed">
               Every asteroid large enough to cause extinction-level damage has been identified and is being tracked. They are all millions of miles away. We know where every one of them will be for the next 100 years. None are on a collision course.
             </p>
             <div className="mt-auto pt-4 border-t border-white/10">
@@ -123,15 +157,15 @@ export default function Home() {
           </article>
 
           {/* Card 3 — DART Mission */}
-          <article className="min-w-[80vw] md:min-w-[40vw] snap-center shrink-0 rounded-2xl p-8 flex flex-col gap-4 liquid-glass border border-white/5">
+          <article className="min-w-[80vw] md:min-w-[40vw] snap-center shrink-0 rounded-2xl p-8 flex flex-col gap-4 backdrop-blur-md bg-white/5 border border-red-500/20 hover:bg-white/10 transition-colors">
             <p className="text-white/30 font-mono text-[10px] tracking-[0.3em] uppercase">Sep 26, 2022</p>
-            <h3 className="text-2xl font-bold tracking-tight text-white">
+            <h3 className="text-2xl font-bold tracking-tight text-orange-400">
               NASA's DART Mission
             </h3>
-            <p className="text-white/60 leading-relaxed">
+            <p className="text-gray-300 leading-relaxed">
               The Double Asteroid Redirection Test deliberately collided a spacecraft with Dimorphos, a 160-meter moonlet, and changed its orbital period by 33 minutes.
             </p>
-            <p className="text-white/40 leading-relaxed">
+            <p className="text-gray-300/70 leading-relaxed">
               This proved kinetic impactor technology works. If we detect a threat decades in advance, we can nudge it off course. We are no longer passive observers.
             </p>
             <div className="mt-auto pt-4 border-t border-white/10">
