@@ -218,7 +218,21 @@ export const ParticleScene: React.FC<ParticleSceneProps> = ({ onHover, onClickAs
       ]);
       gridGroup.add(new THREE.Line(geo, gridMat));
     }
-    scene.add(gridGroup);
+    scene.add(gridGroup);   // NOTE: grid kept in scene but opacity is never raised (removed per UX)
+
+    // ── Origin Earth — textured sphere at scatter plot origin ──
+    const earthGroup = new THREE.Group();
+    earthGroup.position.set(-9, -4.5, 0);
+    const originEarthMats: THREE.MeshBasicMaterial[] = [];
+
+    // Base textured sphere (UV-sampled from earth-color.jpg)
+    const loader = new THREE.TextureLoader();
+    const earthTex = loader.load('/earth-color.jpg');
+    const surfMat = new THREE.MeshBasicMaterial({ map: earthTex, transparent: true, opacity: 0 });
+    originEarthMats.push(surfMat);
+    earthGroup.add(new THREE.Mesh(new THREE.SphereGeometry(0.72, 32, 24), surfMat));
+
+    scene.add(earthGroup);
 
     // 7. Custom aMatrix Projection (bypasses Ghost Raycaster bug)
     const mouse    = new THREE.Vector2();
@@ -300,9 +314,13 @@ export const ParticleScene: React.FC<ParticleSceneProps> = ({ onHover, onClickAs
         const gridTarget = Math.max(0, Math.min(1, (p - 0.2) * 2.5));
         gsap.to(gridMat, { opacity: gridTarget * 0.4, duration: 0.4 });
         gsap.to(gridGroup.rotation, { y: p * 0.5, x: p * 0.2, duration: 0.5 });
+        // Earth only appears when graph is nearly fully formed (p > 0.8)
+        const earthOpacity = Math.max(0, (p - 0.8) * 3.75) * 0.75;
+        originEarthMats.forEach((m) => { m.opacity = earthOpacity; });
       } else {
         gsap.to(particles.rotation, { y: scrollFraction * Math.PI, x: 0, duration: 0.5 });
         gsap.to(gridMat, { opacity: 0, duration: 0.3 });
+        originEarthMats.forEach((m) => { m.opacity = 0; });
       }
     };
     window.addEventListener('scroll', handleScroll, { passive: true });
@@ -314,6 +332,8 @@ export const ParticleScene: React.FC<ParticleSceneProps> = ({ onHover, onClickAs
       animationId = requestAnimationFrame(animate);
       material.uniforms.uTime.value += 0.01;
       stars.rotation.y += 0.0003;
+      // Continuously spin Earth on its Y axis for the holographic effect
+      earthGroup.rotation.y += 0.005;
       renderer.render(scene, camera);
     };
     animate();
@@ -328,8 +348,8 @@ export const ParticleScene: React.FC<ParticleSceneProps> = ({ onHover, onClickAs
     return () => {
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('click', onClick);
-      window.removeEventListener('resize', onResize);
       window.removeEventListener('scroll', handleScroll);
+      window.removeEventListener('resize', onResize);
       cancelAnimationFrame(animationId);
       document.body.style.cursor = 'default';
       renderer.dispose();

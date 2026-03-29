@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { ParticleScene, HoverInfo } from '../components/ParticleScene';
+import { SpaceView3D } from '../components/SpaceView3D';
 import { fetchNasaData, NeoAsteroid } from '../utils/nasaApi';
 
 // ── Physics ────────────────────────────────────────────────────────────────
@@ -63,6 +64,17 @@ function StarField() {
 }
 
 // ── Kinetic Impact Overlay ─────────────────────────────────────────────────
+function classifyObject(neo: NeoAsteroid): { label: string; color: string } {
+  const km = neo.estimatedDiameterKm;
+  if (neo.isPotentiallyHazardous && km >= 0.14) return { label: 'Planetary Threat', color: '#ff2600' };
+  if (neo.isPotentiallyHazardous)              return { label: 'Hazardous Asteroid', color: '#ff5500' };
+  if (km >= 1.0)   return { label: 'Large Asteroid', color: '#fb923c' };
+  if (km >= 0.1)   return { label: 'Asteroid',       color: '#fbbf24' };
+  if (km >= 0.025) return { label: 'Small Asteroid', color: '#d4b483' };
+  if (km >= 0.001) return { label: 'Meteoroid',      color: '#a8997a' };
+  return              { label: 'Micrometeorite',     color: '#777777' };
+}
+
 function KineticOverlay({ a, onClose }: { a: NeoAsteroid; onClose: () => void }) {
   const { mt, label } = calcYield(a);
   const risk  = riskLevel(a);
@@ -90,6 +102,13 @@ function KineticOverlay({ a, onClose }: { a: NeoAsteroid; onClose: () => void })
             <h2 className="text-white font-bold truncate" style={{ fontSize: '1.4rem', letterSpacing: '-0.02em' }}>
               {a.name}
             </h2>
+            {/* Object type badge */}
+            {(() => { const t = classifyObject(a); return (
+              <span className="rounded-full px-3 py-0.5 text-[9px] font-semibold tracking-widest uppercase shrink-0 border"
+                    style={{ color: t.color, borderColor: t.color + '40', background: t.color + '12' }}>
+                {t.label}
+              </span>
+            ); })()}
             {a.isPotentiallyHazardous && (
               <span className="liquid-glass rounded-full px-3 py-0.5 text-white/50 text-[9px] tracking-widest uppercase shrink-0">PHO</span>
             )}
@@ -297,6 +316,7 @@ function NarrativeCarousel() {
 export default function Home() {
   const [hoverInfo,        setHoverInfo]        = useState<HoverInfo | null>(null);
   const [selectedAsteroid, setSelectedAsteroid] = useState<NeoAsteroid | null>(null);
+  const [showSpaceView,    setShowSpaceView]     = useState(false);
   const [nasaData,         setNasaData]         = useState<NeoAsteroid[]>([]);
   const [activeTimeline,   setActiveTimeline]   = useState('current');
   const [timelineLoading,  setTimelineLoading]  = useState(false);
@@ -304,9 +324,10 @@ export default function Home() {
   useEffect(() => { fetchNasaData().then(setNasaData); }, []);
 
   useEffect(() => {
-    document.body.style.overflow = selectedAsteroid ? 'hidden' : '';
+    const locked = selectedAsteroid || showSpaceView;
+    document.body.style.overflow = locked ? 'hidden' : '';
     return () => { document.body.style.overflow = ''; };
-  }, [selectedAsteroid]);
+  }, [selectedAsteroid, showSpaceView]);
 
   useEffect(() => {
     const h = (e: KeyboardEvent) => { if (e.key === 'Escape') setSelectedAsteroid(null); };
@@ -409,21 +430,48 @@ export default function Home() {
 
         {/* Phase 2: Graph + Timeline */}
         <section className="h-screen relative pointer-events-none">
-          <div className="absolute top-10 left-1/2 -translate-x-1/2 text-center">
-            <p className="text-white/30 font-mono text-[10px] tracking-widest uppercase">
-              Live NASA data · hover to inspect · <span style={{ color: '#fb923c' }}>click</span> to analyse
+
+          {/* ── HUD Title ── */}
+          <div className="absolute top-10 left-10 md:top-16 md:left-16">
+            <div className="flex items-center gap-3 mb-2">
+              <h2 className="font-bold text-white uppercase tracking-widest" style={{ fontSize: 'clamp(1rem, 2.5vw, 1.6rem)', letterSpacing: '0.15em' }}>
+                The Threat Matrix
+              </h2>
+            </div>
+            <p className="font-mono text-[10px] tracking-[0.35em] uppercase" style={{ color: 'rgba(251,146,60,0.7)' }}>
+              Live Telemetry · {nasaData.length} Tracked Objects
             </p>
           </div>
 
-          <div className="absolute bottom-28 left-1/2 -translate-x-1/2 text-white/15 font-mono text-[10px] tracking-widest uppercase">
-            Miss Distance →
-          </div>
-          <div className="absolute left-6 top-1/2 text-white/15 font-mono text-[10px] tracking-widest uppercase"
-               style={{ writingMode: 'vertical-rl', transform: 'translateY(-50%) rotate(180deg)' }}>
-            Diameter →
+          {/* ── 3D Space View button ── */}
+          <div className="absolute top-10 right-10 md:top-14 md:right-14 pointer-events-auto">
+            <button
+              onClick={() => setShowSpaceView(true)}
+              className="liquid-glass-strong rounded-full px-5 py-2.5 text-white/70 hover:text-white text-xs font-mono uppercase tracking-widest transition-all"
+            >
+              ⊕ 3D Space View
+            </button>
           </div>
 
-          {/* ── Timeline — single glass layer ── */}
+          {/* ── Y-Axis label (left side, rotated) ── */}
+          <div
+            className="absolute left-3 md:left-8 top-1/2 font-mono text-[10px] tracking-[0.3em] uppercase flex items-center gap-3"
+            style={{ transform: 'translateY(-50%) rotate(-90deg)', transformOrigin: 'center center', color: 'rgba(255,255,255,0.25)', whiteSpace: 'nowrap' }}
+          >
+            <span className="inline-block w-10 h-px" style={{ background: 'rgba(255,255,255,0.15)' }} />
+            Estimated Diameter
+            <span className="inline-block w-10 h-px" style={{ background: 'rgba(255,255,255,0.15)' }} />
+          </div>
+
+          {/* ── X-Axis label (bottom centre) ── */}
+          <div className="absolute bottom-24 left-1/2 -translate-x-1/2 font-mono text-[10px] tracking-[0.3em] uppercase flex items-center gap-3"
+               style={{ color: 'rgba(255,255,255,0.25)' }}>
+            <span className="inline-block w-10 h-px" style={{ background: 'rgba(255,255,255,0.15)' }} />
+            Miss Distance from Earth
+            <span className="inline-block w-10 h-px" style={{ background: 'rgba(255,255,255,0.15)' }} />
+          </div>
+
+          {/* ── Timeline ── */}
           <div className="absolute bottom-8 left-0 right-0 flex justify-center px-4 pointer-events-auto">
             <div className="liquid-glass rounded-full px-2 py-2 flex flex-wrap justify-center gap-1 items-center max-w-3xl">
               <span className="text-white/20 text-[10px] font-mono uppercase tracking-widest px-3 hidden md:block">
@@ -502,6 +550,11 @@ export default function Home() {
       {/* ── Kinetic Impact Overlay ─────────────────────────────── */}
       {selectedAsteroid && (
         <KineticOverlay a={selectedAsteroid} onClose={() => setSelectedAsteroid(null)} />
+      )}
+
+      {/* ── 3D Space View Overlay ──────────────────────────────── */}
+      {showSpaceView && nasaData.length > 0 && (
+        <SpaceView3D nasaData={nasaData} onClose={() => setShowSpaceView(false)} />
       )}
     </main>
   );

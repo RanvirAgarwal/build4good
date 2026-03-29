@@ -1,79 +1,211 @@
-# The Threat Matrix - Project Memory
+# The Threat Matrix — Project Memory
+
+> Last updated: 2026-03-29 (Final major update)
+
+---
 
 ## 1. Project Objective
-A scroll-telling 3D visualization using NASA telemetry to debunk sensationalist media narratives about near-Earth asteroids. The app morphs thousands of 3D particles through different mathematical states based on the user's scroll position to prove the "Danger Quadrant" is actually empty.
+
+A scroll-telling 3D data visualization using live NASA NeoWs telemetry to debunk sensationalist media about near-Earth asteroids. The app morphs ~15,000 GPU-accelerated particles through three distinct mathematical states as the user scrolls, culminating in a real-time scatter plot that proves the "Danger Quadrant" (close **and** large) is statistically empty.
+
+---
 
 ## 2. Tech Stack
-* **Framework:** React (Vite)
-* **Styling:** Tailwind CSS (Modern, dark-mode deep space aesthetic)
-* **3D Engine:** Vanilla Three.js mounted inside a React `useRef` (DO NOT USE React Three Fiber)
-* **Animation:** GSAP for camera tweens, native `requestAnimationFrame` for 3D particle interpolation, native `window.addEventListener('scroll')` for scroll-driven morphing (NOT GSAP ScrollTrigger — it conflicts with React 18 strict mode)
-* **Data Source:** NASA NeoWs API (Near Earth Object Web Service) via `utils/nasaApi.ts`. API key stored in `.env` (gitignored)
 
-## 3. The 3D Particle States (The Core Mechanic)
-The Three.js engine holds a constant array of ~15,000 particles. As the user scrolls, the target positions of these particles change, and the render loop interpolates them to the new shapes:
-* **State 0 (0% Scroll): The Earth.** 14,850 particles accurately map a holographic Earth using Satellite Image Color UV sampling. 150 particles are designated comets, using fractional time offsets and exponential GLSL curves to streak from space.
-* **State 1 (50% Scroll): The Swarm.** Particles expand into a chaotic vol simulating media's portrayal of constant asteroid danger.
-* **State 2 (100% Scroll): The Reality Check.** Particles morph into a flat log-scale 3D scatter plot. ~100-180 real NASA asteroids are mapped to XY data coordinates (X=log10 miss distance, Y=log10 diameter). The remaining ~14,850 filler particles are faded out via the `aDataFlag` shader attribute. The top-left "Danger Quadrant" is empty because no real asteroids are both close AND large.
+| Layer | Choice | Notes |
+|-------|--------|-------|
+| Framework | React + Vite | TypeScript throughout |
+| Styling | Tailwind CSS v4 + custom CSS | Dark deep-space aesthetic, `Satoshi-Variable` font |
+| 3D Engine | Vanilla Three.js in `useRef` | **Never use React Three Fiber** — causes re-render hell |
+| Animation | GSAP tweens + native `requestAnimationFrame` | No GSAP ScrollTrigger (conflicts React 18 strict mode) |
+| Scroll | Native `window.addEventListener('scroll')` | Pinned 300 vh zone |
+| Data | NASA NeoWs API via `utils/nasaApi.ts` | `VITE_NASA_API_KEY` in `.env` (gitignored) |
+| Package manager | `pnpm` | Use `pnpm`, never `npm` |
+
+---
+
+## 3. Particle States (Core Mechanic)
+
+~15,000 particles held in GPU buffers. Scroll drives `uProgress` uniform (0 → 2), GLSL interpolates positions:
+
+| Progress | State | Description |
+|----------|-------|-------------|
+| 0.0 | **Earth** | UV-sampled holographic globe from satellite texture. 150 comet particles streak in. |
+| 1.0 | **Swarm** | Particles explode into chaotic cloud — media's asteroid horror narrative. |
+| 2.0 | **Threat Matrix** | Log-scale 3D scatter plot. Real NASA data mapped (X = miss distance, Y = diameter). Filler particles fade out via `aDataFlag` shader attribute. |
+
+### Key Shader Attributes
+- `aMatrix` — target position in scatter plot space (read by NDC hover loop)
+- `aEarth` — UV-sampled Earth sphere position
+- `aSwarm` — chaotic swarm position
+- `aDataFlag` — 1.0 for real NASA asteroid, 0.0 for filler (filler → invisible at graph phase)
+
+---
 
 ## 4. Architecture Notes
-* **Scroll Engine:** Scroll fraction pinned to 300vh zone (`scrollZoneHeight = window.innerHeight * 3`), NOT total page height. This ensures the graph fully completes before the narrative carousel appears below.
-* **Scroll Deadlock Fix:** `overflow-x-hidden` removed from `<main>`. `html` forced to `overflow-y: auto !important; height: auto !important` in index.css.
-* **Particle Reconciliation (15k → ~100):** The `aDataFlag` float attribute (1.0 for real, 0.0 for filler) is passed to vertex shader. During Swarm→Matrix transition, filler particles' `gl_PointSize` → 0.0 and alpha fades via `smoothstep`.
-* **Ghost Raycaster Bug Fix:** `THREE.Raycaster` was checking the `position` attribute (Earth coords). The GPU shader visually moved points to `aMatrix` space. Fix: a manual NDC projection loop reads `geometry.attributes.aMatrix` directly, applies `particles.matrixWorld`, then projects to 2D NDC for distance checking. CPU and GPU now agree on point positions.
-* **Mouse Repel Disabled at Graph State:** GLSL repel logic is gated by `if (uProgress < 1.5)` so it only fires during Earth/Swarm phases. The graph is static for accurate hover/click detection.
-* **API Key Security:** NASA key stored in `.env` as `VITE_NASA_API_KEY`, accessed via `import.meta.env.VITE_NASA_API_KEY`. `.gitignore` ignores all `.env*` files.
 
-## 5. Interactive Features
-### Hover HUD
-* Fires via custom NDC projection loop (not Raycaster) reading `aMatrix` buffer directly
-* Shows: Asteroid name, diameter (m/km auto-formatted), miss distance (LD + AU), velocity (km/s)
-* PHO badge pulses red if `isPotentiallyHazardous`
-* Hint text: "Click to analyse impact"
+- **Scroll Engine:** Fraction pinned to `scrollZoneHeight = window.innerHeight * 3`. Graph completes before narrative carousel appears below.
+- **Ghost Raycaster Fix:** `THREE.Raycaster` reads `position` (Earth coords). The GPU moved points to `aMatrix` space. Fix: manual NDC projection loop reads `geometry.attributes.aMatrix`, applies `particles.matrixWorld`, projects to 2D NDC. CPU/GPU now agree.
+- **Mouse Repel:** GLSL repel gated by `if (uProgress < 1.5)` — fires only on Earth/Swarm phases, disabled at graph phase for accurate picking.
+- **Buffer Hot-Swap:** Two separate `useEffect`s in `ParticleScene`. Scene setup runs once (`[]`). NASA buffer update runs on `[externalNasaData]` — replaces `aMatrix` attributes without scene teardown.
+- **Click Gating:** `clickEnabledRef` prop prevents asteroid clicks while overlays are open.
+- **API Key:** `VITE_NASA_API_KEY` in `.env`. Falls back to mock data if API fails.
 
-### Click → Kinetic Impact Overlay
-* Clicking an asteroid in graph state triggers `setSelectedAsteroid`
-* Full-screen `KineticImpactOverlay` component with:
-  * **Left panel:** Kinetic energy physics (mass, velocity → MT TNT), concentric CSS blast circles vs Chelyabinsk / Castle Bravo / Tsar Bomba / Regional Impact references
-  * **Right panel:** Glossary — LD, AU, PHO, NEO definitions
-  * Physics: `KE = 0.5 × mass × v²`, `mass = (4/3)πr³ × 3000 kg/m³`, `MT = KE / 4.184e15`
-* Close with "← Back to Matrix" button or Escape key
+---
 
-### Temporal Timeline
-* UI at bottom of Phase 2 (graph) section
-* Three presets:
-  * **Current Week** — today's 7-day window
-  * **Chelyabinsk (Feb 2013)** — `startDate: '2013-02-11'`
-  * **Apophis (Apr 2029)** — `startDate: '2029-04-07'`
-* Timeline selection calls `fetchNasaData(startDate?)` with new date, updates `nasaData` React state in Home.tsx
-* `nasaData` is passed as prop to `ParticleScene`, which hot-swaps GPU buffers in a separate `useEffect`
-* Visual feedback: GSAP pulse animation (`scale 0.88 → 1.0, back.out easing`) on buffer update
+## 5. Origin Earth (Small Map View)
 
-## 6. `ParticleScene` Prop API
+A holographic Earth rendered at scatter plot origin position `(-9, -4.5, 0)`:
+- **Textured sphere** — `THREE.TextureLoader` loads `/earth-color.jpg` → `MeshBasicMaterial({ map: tex })`, `SphereGeometry(0.72, 32, 24)`
+- No wireframe overlay, no atmosphere sphere (both removed to avoid blue outline artifact)
+- Opacity controlled by `originEarthMats[]` array, fades in only when `p > 0.8` (graph nearly fully formed — avoids interfering with swarm phase)
+- Spins in render loop: `earthGroup.rotation.y += 0.005`
+
+---
+
+## 6. Interactive Features
+
+### Hover (Main Scatter Plot)
+- Custom NDC projection loop (not Raycaster) reading `aMatrix` directly
+- Shows: name, diameter (auto m/km), miss distance (LD + AU), velocity (km/s), "Click to analyse" hint
+
+### Click → Kinetic Impact Overlay (Small View — `KineticOverlay` in `Home.tsx`)
+- Triggered by clicking asteroids in the scatter plot
+- Full-screen glass overlay (liquid-glass-strong + backdrop-blur)
+- **Header:** Asteroid name · Object Type badge (Planetary Threat / Hazardous Asteroid / Large Asteroid / Asteroid / Small Asteroid / Meteoroid / Micrometeorite) · PHO badge · Risk badge (LOW/MODERATE/ELEVATED/CRITICAL)
+- **Left panel:** Proximity (LD + AU), Size (m/km + damage class), Kinetic Yield (`KE = ½mv²`, `ρ = 3000 kg/m³`), Comparison bars (Hiroshima / Chelyabinsk / Castle Bravo / Tsar Bomba, log-normalized widths)
+- **Right panel:** Threat Consensus (verdict, impact probability, damage class, Active Defenses), LD / AU / PHO glossary cards
+- No scrollbars — everything `flex-1 min-h-0 overflow-hidden`, fits in one viewport
+- Close with ← Back or Escape
+
+### Temporal Timeline (Main View)
+- Glass pill bar at bottom of graph phase
+- Preset buttons: Now / −14d / −7d / +7d / +14d
+- Custom dark-themed `<input type="date">` picker
+- Fetches `fetchNasaData(startDate?)` and hot-swaps asteroid GPU buffers
+
+---
+
+## 7. 3D Space View (`SpaceView3D.tsx`)
+
+Full-screen overlay opened via **⊕ 3D Space View** glass button (top-right of graph HUD):
+- **Three.js scene (separate from main):** Stars (4,000 pts), Earth, asteroids, LD reference rings
+- **Earth model:**
+  - Solid textured sphere (`MeshBasicMaterial({ map: earth-color.jpg })`, `SphereGeometry(2.45, 48, 32)`)
+  - UV-sampled particle cloud (6,000 pts from `earth-color.jpg` — shows real continent colors)
+  - Atmosphere glow (`BackSide` sphere, opacity 0.07)
+  - Equatorial ring line
+- **Asteroid positions:** Stable pseudo-random from `strHash(neo.name)` — no visible spiral pattern. Ecliptic-biased inclination (±30° from equatorial plane, matching real NEO population). Log-scaled LD radial distance.
+- **Asteroid dots:** Size 0.5, soft circular canvas texture, orange-amber for NEOs, red for PHOs
+- **LD reference rings:** 5/10/20/40 LD at `y=0` ecliptic plane
+- **Orbit controls:** Mouse drag → spherical θ/φ orbit, scroll wheel → zoom (4–200 units)
+- **Timeline:** Same presets as main view + custom date, hot-swaps asteroid buffers without rebuilding scene
+- **Hover tooltip:** Shows name + LD + PHO warning + "click for details"
+- **Click → AsteroidDetail:** Full-screen impact analysis panel overlaid at `z-[200]`
+- **ESC** closes SpaceView3D
+
+---
+
+## 8. Asteroid Detail Page (`AsteroidDetail.tsx`)
+
+Opened by clicking any asteroid in SpaceView3D. Renders as absolute `z-[200]` overlay (3D scene stays mounted):
+- Same glass aesthetic as KineticOverlay
+- **Header:** ← Back · Name · Object Type badge · PHO badge · Risk badge · "Impact Analysis"
+- **Left column:** Proximity card (cyan LD stat), Size card (white diameter + damage class), Kinetic Yield card (orange GT/MT), Comparison bars
+- **Right column:** Threat Consensus (verdict + defenses), LD card, AU card, PHO ✓/✗ card
+- Same physics as KineticOverlay (`calcYield`, `riskLevel`, `REFS`)
+- No scrollbars — pure flex viewport fill
+
+---
+
+## 9. Object Classification System
+
+Used in both `KineticOverlay` and `AsteroidDetail`:
+
+| Label | Condition | Color |
+|-------|-----------|-------|
+| Planetary Threat | PHO + ≥140m | `#ff2600` |
+| Hazardous Asteroid | PHO + <140m | `#ff5500` |
+| Large Asteroid | ≥1 km | `#fb923c` |
+| Asteroid | ≥100m | `#fbbf24` |
+| Small Asteroid | ≥25m | `#d4b483` |
+| Meteoroid | ≥1m | `#a8997a` |
+| Micrometeorite | <1m | `#777777` |
+
+---
+
+## 10. Glassmorphism Design System
+
+Defined in `index.css` (`@layer components`):
+
+- `.liquid-glass` — `backdrop-filter: blur(4px)`, very subtle bg, `::before` gradient border (top/bottom shimmer)
+- `.liquid-glass-strong` — `backdrop-filter: blur(50px)`, stronger inset shadow, `::before` stronger shimmer
+- Both use `::before` with `linear-gradient(180deg, rgba(255,255,255,0.45)→transparent→rgba(255,255,255,0.45))` + `mask-composite: exclude` to create gradient border effect
+- Font: `Satoshi-Variable` loaded via `@font-face`
+
+---
+
+## 11. Key File Map
+
+```
+client/src/
+├── pages/
+│   └── Home.tsx              # Main page, scroll logic, KineticOverlay, NarrativeCarousel
+├── components/
+│   ├── ParticleScene.tsx     # WebGL engine — particles, Earth model, hover/click picking
+│   ├── SpaceView3D.tsx       # Full-screen 3D space explorer overlay
+│   └── AsteroidDetail.tsx    # Asteroid impact analysis full-screen page
+├── utils/
+│   ├── nasaApi.ts            # fetchNasaData(startDate?), NeoAsteroid interface
+│   └── particleMath.ts       # Target position generators (Earth, swarm, scatter plot)
+├── index.css                 # Tailwind + custom glass classes + font
+public/
+└── earth-color.jpg           # NASA Blue Marble satellite texture (required)
+```
+
+---
+
+## 12. `ParticleScene` Prop API
+
 ```typescript
 interface ParticleSceneProps {
   onHover?:          (info: HoverInfo | null) => void;
   onClickAsteroid?:  (asteroid: NeoAsteroid) => void;
-  nasaData?:         NeoAsteroid[];  // External — triggers buffer hot-swap on change
+  nasaData?:         NeoAsteroid[];   // triggers buffer hot-swap on change
+  clickEnabled?:     boolean;         // gates asteroid click (false when overlay open)
 }
 ```
-* **Two useEffects:** Scene setup runs once (`[]`). Buffer hot-swap runs on `[externalNasaData]`.
-* **Refs:** `geometryRef`, `particlesRef`, `nasaDataRef` shared between effects.
 
-## 7. `fetchNasaData` API
+---
+
+## 13. `fetchNasaData` API
+
 ```typescript
 fetchNasaData(startDate?: string): Promise<NeoAsteroid[]>
-// startDate: ISO 'YYYY-MM-DD'. Fetches that date + 7 days. Defaults to today.
+// ISO 'YYYY-MM-DD'. Fetches date + 7 days. Defaults to today. Falls back to mock data.
 ```
 
-## 8. Project Status
-* [x] WebGL Foundation & 3D particle system
-* [x] Math engine & target generation
-* [x] Scroll-telling narrative UI
-* [x] High-res Earth map (satellite UV sampling)
-* [x] Gravitational comet strikes
-* [x] Live NASA NeoWs integration
-* [x] Ghost Raycaster fix (aMatrix NDC projection loop)
-* [x] Temporal Timeline (historical/future date windows)
-* [x] Kinetic Impact Overlay (physics + blast circles + glossary)
-* [x] Dynamic GPU buffer hot-swap on timeline change
+---
+
+## 14. Completed Features Checklist
+
+- [x] WebGL Foundation & 3D particle system (Vanilla Three.js, no RFiber)
+- [x] Math engine & target position generation
+- [x] Scroll-telling narrative (Earth → Swarm → Threat Matrix)
+- [x] GPU shader morphing (`uProgress`, `aDataFlag`, `aMatrix`)
+- [x] Ghost Raycaster fix (aMatrix NDC projection loop)
+- [x] High-res UV-sampled Earth (satellite texture, comets)
+- [x] Live NASA NeoWs integration + mock fallback
+- [x] Temporal Timeline (presets + custom date picker)
+- [x] Buffer hot-swap (no scene rebuild on date change)
+- [x] Kinetic Impact Overlay (KE physics, comparison bars, glossary)
+- [x] Object classification system (7 tiers)
+- [x] Glassmorphism design system (liquid-glass + liquid-glass-strong)
+- [x] NarrativeCarousel (infinite wrap, crossfade)
+- [x] Threat Consensus + Defense Mechanisms panels
+- [x] 3D Space View (SpaceView3D.tsx) — full-screen explorer
+- [x] Realistic asteroid positions (ecliptic-biased, stable name hash)
+- [x] Solid textured Earth in 3D Space View (continent rendering)
+- [x] AsteroidDetail full-screen impact page (from 3D Space View clicks)
+- [x] Earth fades in only after graph fully formed (p > 0.8 threshold)
+- [x] Static particles during scroll phase (no accidental drag)

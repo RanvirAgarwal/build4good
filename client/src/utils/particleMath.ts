@@ -121,8 +121,8 @@ export const generateMatrix = (nasaData?: NeoAsteroid[]) => {
     const logSize = Math.log10(Math.max(neo.estimatedDiameterKm, 0.001));
     const y = ((logSize + 2) / 3.0) * 10.0 - 5.0;
 
-    // Z axis: slight depth for 3D feel
-    const z = (Math.random() - 0.5) * 1.5;
+    // Z axis: volumetric depth for true 3D scatter feel
+    const z = (Math.random() - 0.5) * 6.0;
 
     positions[i * 3] = x;
     positions[i * 3 + 1] = y;
