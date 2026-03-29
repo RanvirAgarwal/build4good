@@ -226,44 +226,71 @@ export const ParticleScene: React.FC<ParticleSceneProps> = ({ onHover }) => {
     }
     scene.add(gridGroup);
 
-    // 7. Interactive Raycaster Logic
-    const raycaster = new THREE.Raycaster();
-    raycaster.params.Points!.threshold = 2.5; // Large hitbox — points are tiny, this makes them clickable
+    // 7. Custom aMatrix Projection Loop (bypasses Ghost Raycaster bug)
+    // The THREE.Raycaster checks the *position* attribute (Earth coords).
+    // But the GPU shader moves points to *aMatrix* coords. We read aMatrix directly.
     const mouse = new THREE.Vector2();
+    const tempV = new THREE.Vector3();
     const mathPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+    const mathRay = new THREE.Ray();
+    const mathCamera = camera; // alias for clarity
 
     const onMouseMove = (e: MouseEvent) => {
       mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
       mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
-      raycaster.setFromCamera(mouse, camera);
 
-      // Mouse repel (always active)
+      // ── Mouse repel: project mouse ray onto the scene plane for the shader uniform ──
+      mathRay.origin.setFromMatrixPosition(mathCamera.matrixWorld);
+      mathRay.direction
+        .set(mouse.x, mouse.y, 0.5)
+        .unproject(mathCamera)
+        .sub(mathRay.origin)
+        .normalize();
       const planeTarget = new THREE.Vector3();
-      const planeHit = raycaster.ray.intersectPlane(mathPlane, planeTarget);
-      if (planeHit) {
+      if (mathRay.intersectPlane(mathPlane, planeTarget)) {
         material.uniforms.uMouse.value.copy(planeTarget);
       }
 
-      // Raycaster HUD — only when graph is fully formed
+      // ── Asteroid hover: only when graph is fully formed ──
       if (material.uniforms.uProgress.value < 1.8 || nasaData.length === 0) {
         if (onHover) onHover(null);
         document.body.style.cursor = 'default';
         return;
       }
 
-      const intersects = raycaster.intersectObject(particles);
-      // Only care about real NASA data (index < nasaData.length)
-      const validHit = intersects.find(hit => hit.index !== undefined && hit.index < nasaData.length);
+      let closestAsteroid = null;
+      let minDist = 0.04; // NDC hitbox radius (~4% of screen width)
 
-      if (validHit && validHit.index !== undefined) {
+      for (let i = 0; i < nasaData.length; i++) {
+        // Read the actual GPU target position from aMatrix buffer
+        tempV.fromBufferAttribute(
+          geometry.attributes.aMatrix as THREE.BufferAttribute, i
+        );
+        // Apply particle group rotation applied by scroll handler
+        tempV.applyMatrix4(particles.matrixWorld);
+        // Project 3D → 2D NDC
+        tempV.project(mathCamera);
+
+        const dx = tempV.x - mouse.x;
+        const dy = tempV.y - mouse.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (dist < minDist) {
+          minDist = dist;
+          closestAsteroid = nasaData[i];
+        }
+      }
+
+      if (closestAsteroid) {
         document.body.style.cursor = 'crosshair';
-        if (onHover) onHover({ data: nasaData[validHit.index], x: e.clientX, y: e.clientY });
+        if (onHover) onHover({ data: closestAsteroid, x: e.clientX, y: e.clientY });
       } else {
         document.body.style.cursor = 'default';
         if (onHover) onHover(null);
       }
     };
     window.addEventListener('mousemove', onMouseMove);
+
 
     // 8. Native Scroll Engine — progress based on the 300vh scroll container only
     const handleScroll = () => {

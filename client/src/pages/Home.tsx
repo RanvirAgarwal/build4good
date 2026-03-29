@@ -11,30 +11,42 @@ export default function Home() {
       {/* Raycaster HUD Tooltip — tracks mouse, only visible when hovering a real asteroid */}
       {hoverInfo && (
         <div
-          className="fixed z-50 pointer-events-none backdrop-blur-md bg-black/80 border border-white/10 p-4 rounded-lg text-xs font-mono tracking-widest"
-          style={{ left: hoverInfo.x + 15, top: hoverInfo.y + 15 }}
+          className="fixed z-50 pointer-events-none backdrop-blur-xl bg-black/90 border border-orange-500/30 p-5 rounded-xl shadow-[0_0_20px_rgba(255,100,0,0.15)] font-mono tracking-widest text-sm w-80"
+          style={{ left: hoverInfo.x + 20, top: hoverInfo.y + 20 }}
         >
-          <div className="text-white font-bold text-sm mb-2 tracking-tight">{hoverInfo.data.name}</div>
-          <div className="grid grid-cols-2 gap-x-6 gap-y-1">
-            <span className="text-white/40">DIAMETER</span>
-            <span className="text-white/80 text-right">
+          <div className="flex justify-between items-start border-b border-white/10 pb-2 mb-3">
+            <div className="text-white font-bold text-base leading-tight">{hoverInfo.data.name}</div>
+            {hoverInfo.data.isPotentiallyHazardous && (
+              <div className="text-red-400 text-[9px] border border-red-500/40 px-2 py-1 rounded bg-red-500/10 animate-pulse ml-2 shrink-0">
+                PHO
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-y-3">
+            <span className="text-white/40 text-[10px] uppercase">Diameter</span>
+            <span className="text-right text-orange-300 font-bold">
               {hoverInfo.data.estimatedDiameterKm >= 1
                 ? `${hoverInfo.data.estimatedDiameterKm.toFixed(2)} km`
-                : `${(hoverInfo.data.estimatedDiameterKm * 1000).toFixed(0)} m`
-              }
+                : `${(hoverInfo.data.estimatedDiameterKm * 1000).toFixed(0)} m`}
             </span>
-            <span className="text-white/40">DISTANCE</span>
-            <span className="text-white/80 text-right">
-              {hoverInfo.data.missDistanceKm >= 1e6
-                ? `${(hoverInfo.data.missDistanceKm / 1e6).toFixed(1)}M km`
-                : `${Math.round(hoverInfo.data.missDistanceKm).toLocaleString()} km`
-              }
-            </span>
-            <span className="text-white/40">VELOCITY</span>
-            <span className="text-white/80 text-right">{Math.round(hoverInfo.data.relativeVelocityKmh).toLocaleString()} km/h</span>
-            <span className="text-white/40">HAZARDOUS</span>
-            <span className={`text-right ${hoverInfo.data.isPotentiallyHazardous ? 'text-red-400' : 'text-white/50'}`}>
-              {hoverInfo.data.isPotentiallyHazardous ? 'YES' : 'NO'}
+
+            <span className="text-white/40 text-[10px] uppercase">Miss Distance</span>
+            <div className="text-right flex flex-col gap-0.5">
+              <span className="text-cyan-400 font-bold">
+                {(hoverInfo.data.missDistanceKm / 384400).toFixed(2)} LD
+              </span>
+              <span className="text-white/30 text-[10px]">
+                {(hoverInfo.data.missDistanceKm / 149597870).toFixed(4)} AU
+              </span>
+              <span className="text-white/20 text-[9px]">
+                {Math.round(hoverInfo.data.missDistanceKm).toLocaleString()} km
+              </span>
+            </div>
+
+            <span className="text-white/40 text-[10px] uppercase">Velocity</span>
+            <span className="text-right text-white/70">
+              {(hoverInfo.data.relativeVelocityKmh / 3600).toFixed(2)} km/s
             </span>
           </div>
         </div>
