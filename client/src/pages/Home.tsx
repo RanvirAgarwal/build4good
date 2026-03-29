@@ -1,20 +1,203 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { ParticleScene, HoverInfo } from '../components/ParticleScene';
 import { fetchNasaData, NeoAsteroid } from '../utils/nasaApi';
 
-// ── Kinetic Energy Physics ─────────────────────────────────────────────────
-function calcYield(asteroid: NeoAsteroid): string {
-  const radiusM    = (asteroid.estimatedDiameterKm * 1000) / 2;
-  const volume     = (4 / 3) * Math.PI * Math.pow(radiusM, 3);
-  const mass       = volume * 3000;                       // 3000 kg/m³ rock density
-  const velocityMs = asteroid.relativeVelocityKmh / 3.6; // km/h → m/s
-  const joules     = 0.5 * mass * Math.pow(velocityMs, 2);
-  const megatons   = joules / 4.184e15;
-  return megatons >= 1000
-    ? `${(megatons / 1000).toFixed(2)} Gigatons`
-    : megatons >= 0.01
-    ? `${megatons.toFixed(2)} Megatons`
-    : `${(megatons * 1000).toFixed(3)} Kilotons`;
+// ── Physics ────────────────────────────────────────────────────────────────
+function calcYield(a: NeoAsteroid) {
+  const r  = (a.estimatedDiameterKm * 1000) / 2;
+  const V  = (4 / 3) * Math.PI * r ** 3;
+  const m  = V * 3000;
+  const v  = a.relativeVelocityKmh / 3.6;
+  const J  = 0.5 * m * v ** 2;
+  const mt = J / 4.184e15;
+  return { mt, label: mt >= 1000 ? `${(mt / 1000).toFixed(2)} GT` : mt >= 0.01 ? `${mt.toFixed(2)} MT` : `${(mt * 1000).toFixed(3)} KT` };
+}
+
+const REFS = [
+  { label: 'Hiroshima',      mt: 0.000015 },
+  { label: 'Chelyabinsk',   mt: 0.5      },
+  { label: 'Castle Bravo',  mt: 15       },
+  { label: 'Tsar Bomba',    mt: 50       },
+];
+
+// ── Mini floating-particle canvas for overlay backdrop ──────────────────────
+function StarField() {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const c = ref.current!;
+    const ctx = c.getContext('2d')!;
+    let raf: number;
+    const resize = () => { c.width = c.offsetWidth; c.height = c.offsetHeight; };
+    resize();
+    window.addEventListener('resize', resize);
+    const stars = Array.from({ length: 180 }, () => ({
+      x: Math.random(), y: Math.random(),
+      r: Math.random() * 0.8 + 0.3,
+      s: (Math.random() - 0.5) * 0.00015,
+      o: Math.random() * 0.5 + 0.1,
+    }));
+    const draw = () => {
+      ctx.clearRect(0, 0, c.width, c.height);
+      for (const s of stars) {
+        s.x = (s.x + s.s + 1) % 1;
+        ctx.beginPath();
+        ctx.arc(s.x * c.width, s.y * c.height, s.r, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(255,220,200,${s.o})`;
+        ctx.fill();
+      }
+      raf = requestAnimationFrame(draw);
+    };
+    draw();
+    return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', resize); };
+  }, []);
+  return <canvas ref={ref} className="absolute inset-0 w-full h-full pointer-events-none" />;
+}
+
+// ── Kinetic Impact Overlay ─────────────────────────────────────────────────
+function KineticOverlay({ a, onClose }: { a: NeoAsteroid; onClose: () => void }) {
+  const { mt, label } = calcYield(a);
+  const diamM = (a.estimatedDiameterKm * 1000).toFixed(0);
+  const ld    = (a.missDistanceKm / 384400).toFixed(2);
+  const au    = (a.missDistanceKm / 149597870).toFixed(4);
+  const kms   = (a.relativeVelocityKmh / 3600).toFixed(2);
+
+  return (
+    <div className="fixed inset-0 z-[200] overflow-hidden flex flex-col" style={{ fontFamily: "'Satoshi-Variable', sans-serif" }}>
+      {/* ── Background layers ── */}
+      {/* Semi-transparent dark layer — lets WebGL particles bleed through */}
+      <div className="absolute inset-0" style={{ background: 'rgba(5,2,2,0.82)' }} />
+      {/* Subtle backdrop blur */}
+      <div className="absolute inset-0 backdrop-blur-sm pointer-events-none" />
+      {/* Drifting star field */}
+      <StarField />
+
+      {/* ── Content (no scrolling — everything fits in 100vh) ── */}
+      <div className="relative flex flex-col h-full">
+
+        {/* Header */}
+        <header className="shrink-0 px-8 py-5 flex items-center gap-4 border-b" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+          <button
+            onClick={onClose}
+            className="liquid-glass rounded-full px-4 py-2 text-white/60 hover:text-white text-xs tracking-widest uppercase transition-all hover:text-white"
+            style={{ backdropFilter: 'blur(12px)' }}
+          >
+            ← Back
+          </button>
+          <div className="flex-1 flex items-baseline gap-4 min-w-0">
+            <h2 className="text-white font-bold truncate" style={{ fontSize: '1.5rem', letterSpacing: '-0.02em' }}>
+              {a.name}
+            </h2>
+            {a.isPotentiallyHazardous && (
+              <span className="liquid-glass rounded-full px-3 py-0.5 text-white/70 text-[10px] tracking-widest uppercase shrink-0">
+                PHO
+              </span>
+            )}
+          </div>
+          <span className="text-white/20 font-mono text-[10px] tracking-widest uppercase hidden md:block">
+            Impact Analysis
+          </span>
+        </header>
+
+        {/* Body — 2-col grid, fills remaining height */}
+        <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-2 gap-6 p-6 overflow-hidden">
+
+          {/* ── LEFT: Stats ── */}
+          <div className="flex flex-col gap-4 min-h-0 overflow-hidden">
+
+            {/* Row 1: Proximity + Scale side by side */}
+            <div className="grid grid-cols-2 gap-4 shrink-0">
+              <div className="liquid-glass-strong rounded-2xl p-5 flex flex-col gap-1" style={{ minHeight: 0 }}>
+                <div className="text-white/30 font-mono text-[9px] tracking-widest uppercase">Proximity</div>
+                <div className="text-cyan-300 font-bold" style={{ fontSize: '1.8rem', letterSpacing: '-0.02em', lineHeight: 1 }}>{ld}</div>
+                <div className="text-white/30 font-mono text-[9px]">Lunar Distances</div>
+                <div className="text-white/20 font-mono text-[9px] mt-1">{au} AU</div>
+              </div>
+              <div className="liquid-glass-strong rounded-2xl p-5 flex flex-col gap-1" style={{ minHeight: 0 }}>
+                <div className="text-white/30 font-mono text-[9px] tracking-widest uppercase">Diameter</div>
+                <div className="text-white font-bold" style={{ fontSize: '1.8rem', letterSpacing: '-0.02em', lineHeight: 1 }}>{diamM}</div>
+                <div className="text-white/30 font-mono text-[9px]">Meters</div>
+                <div className="text-white/20 font-mono text-[9px] mt-1">{kms} km/s</div>
+              </div>
+            </div>
+
+            {/* Yield card */}
+            <div className="liquid-glass-strong rounded-2xl p-6 shrink-0">
+              <div className="text-white/30 font-mono text-[9px] tracking-widest uppercase mb-2">Kinetic Yield</div>
+              <div className="font-bold" style={{ fontSize: '2.8rem', letterSpacing: '-0.02em', lineHeight: 1, color: 'rgba(255,180,60,0.9)' }}>
+                {label}
+              </div>
+              <div className="text-white/30 font-mono text-[9px] mt-2">E = ½mv² · ρ = 3,000 kg/m³</div>
+            </div>
+
+            {/* Comparison table */}
+            <div className="liquid-glass rounded-2xl p-5 flex-1 min-h-0">
+              <div className="text-white/30 font-mono text-[9px] tracking-widest uppercase mb-4">Compared to</div>
+              <div className="flex flex-col gap-3">
+                {REFS.map(({ label: rl, mt: rmt }) => {
+                  const ratio = mt / rmt;
+                  return (
+                    <div key={rl} className="flex items-center gap-3">
+                      <div className="text-white/40 text-xs flex-1" style={{ fontFamily: "'Satoshi-Variable', sans-serif" }}>{rl}</div>
+                      <div className="h-px flex-[2] rounded" style={{
+                        background: ratio >= 1
+                          ? `linear-gradient(to right, rgba(255,180,60,${Math.min(0.8, 0.2 + ratio * 0.05)}), rgba(255,100,40,0.3))`
+                          : 'rgba(255,255,255,0.06)',
+                        width: `${Math.min(100, ratio * 20)}%`,
+                      }} />
+                      <div className="text-white/60 font-mono text-[10px] w-16 text-right">
+                        {ratio >= 1000 ? `${(ratio / 1000).toFixed(1)}k×` : ratio >= 1 ? `${ratio.toFixed(1)}×` : `${(1 / ratio).toFixed(0)}× less`}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* ── RIGHT: Glossary ── */}
+          <div className="flex flex-col gap-4 min-h-0 overflow-hidden">
+            {[
+              {
+                term: 'LD',
+                full: 'Lunar Distance',
+                value: '384,400 km',
+                body: `The Earth–Moon gap. This asteroid passes at ${ld} LD — ${parseFloat(ld) < 10 ? 'relatively close on a cosmic scale, but still safely beyond the Moon' : 'well beyond the Moon'}.`,
+              },
+              {
+                term: 'AU',
+                full: 'Astronomical Unit',
+                value: '149,597,870 km',
+                body: `The Earth–Sun distance. At ${au} AU, this object is ${parseFloat(au) < 0.05 ? 'within PHO monitoring range' : 'outside the PHO threshold of 0.05 AU'}.`,
+              },
+              {
+                term: 'PHO',
+                full: 'Potentially Hazardous Object',
+                value: '>140m & <0.05 AU',
+                body: a.isPotentiallyHazardous
+                  ? 'This asteroid qualifies as a PHO. It is catalogued and continuously tracked by NASA CNEOS. PHO ≠ collision risk — it means persistent observation is warranted.'
+                  : 'This object does not meet PHO criteria — either too small (<140m), too distant (>0.05 AU), or both. No escalated monitoring required.',
+              },
+              {
+                term: 'NEO',
+                full: 'Near-Earth Object',
+                value: 'Perihelion <1.3 AU',
+                body: 'Any comet or asteroid with a closest solar approach within 1.3 AU. NASA currently tracks 36,000+ NEOs. The empty danger quadrant in the graph above proves the largest are all safely distant.',
+              },
+            ].map(({ term, full, value, body }) => (
+              <div key={term} className="liquid-glass rounded-2xl p-5 flex-1 min-h-0">
+                <div className="flex items-baseline gap-3 mb-2">
+                  <span className="text-white font-bold text-lg" style={{ letterSpacing: '-0.02em' }}>{term}</span>
+                  <span className="text-white/40 text-xs">{full}</span>
+                  <span className="ml-auto text-white/20 font-mono text-[9px]">{value}</span>
+                </div>
+                <p className="text-white/50 text-xs leading-relaxed">{body}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ── Home ───────────────────────────────────────────────────────────────────
@@ -25,51 +208,37 @@ export default function Home() {
   const [activeTimeline,   setActiveTimeline]   = useState('current');
   const [timelineLoading,  setTimelineLoading]  = useState(false);
 
-  // Initial data load
   useEffect(() => { fetchNasaData().then(setNasaData); }, []);
 
-  // Body scroll lock when overlay is open
+  // Scroll lock when overlay is open
   useEffect(() => {
-    if (selectedAsteroid) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
+    document.body.style.overflow = selectedAsteroid ? 'hidden' : '';
     return () => { document.body.style.overflow = ''; };
   }, [selectedAsteroid]);
 
-  // Close overlay on Escape
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setSelectedAsteroid(null); };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') setSelectedAsteroid(null); };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
   }, []);
 
   const loadDate = useCallback(async (startDate: string | undefined, id: string) => {
-    if (id === activeTimeline) return;
+    if (id === activeTimeline || timelineLoading) return;
     setActiveTimeline(id);
     setTimelineLoading(true);
-    try {
-      const data = await fetchNasaData(startDate);
-      setNasaData(data);
-    } finally {
-      setTimelineLoading(false);
-    }
-  }, [activeTimeline]);
+    try { setNasaData(await fetchNasaData(startDate)); }
+    finally { setTimelineLoading(false); }
+  }, [activeTimeline, timelineLoading]);
 
   const loadCustomDate = useCallback(async (isoDate: string) => {
     setActiveTimeline('custom');
     setTimelineLoading(true);
-    try {
-      const data = await fetchNasaData(isoDate);
-      setNasaData(data);
-    } finally {
-      setTimelineLoading(false);
-    }
+    try { setNasaData(await fetchNasaData(isoDate)); }
+    finally { setTimelineLoading(false); }
   }, []);
 
   return (
-    <main className="relative w-full text-white font-sans selection:bg-cyan-500/30">
+    <main className="relative w-full text-white selection:bg-cyan-500/30" style={{ fontFamily: "'Satoshi-Variable', sans-serif" }}>
       <ParticleScene
         onHover={setHoverInfo}
         onClickAsteroid={setSelectedAsteroid}
@@ -79,65 +248,66 @@ export default function Home() {
       {/* ── Hover HUD ──────────────────────────────────────────── */}
       {hoverInfo && !selectedAsteroid && (
         <div
-          className="fixed z-50 pointer-events-none backdrop-blur-xl bg-black/90 border border-orange-500/30 p-5 rounded-xl shadow-[0_0_20px_rgba(255,100,0,0.15)] font-mono tracking-widest text-sm w-80"
-          style={{ left: hoverInfo.x + 20, top: hoverInfo.y + 20 }}
+          className="fixed z-50 pointer-events-none liquid-glass-strong rounded-2xl p-5 w-72"
+          style={{ left: hoverInfo.x + 20, top: hoverInfo.y + 20, fontFamily: "'Satoshi-Variable', sans-serif" }}
         >
-          <div className="flex justify-between items-start border-b border-white/10 pb-2 mb-3">
-            <div className="text-white font-bold text-base leading-tight">{hoverInfo.data.name}</div>
+          <div className="flex justify-between items-start border-b pb-2 mb-3" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+            <div className="text-white font-semibold text-sm leading-tight" style={{ letterSpacing: '-0.01em' }}>{hoverInfo.data.name}</div>
             {hoverInfo.data.isPotentiallyHazardous && (
-              <div className="text-red-400 text-[9px] border border-red-500/40 px-2 py-1 rounded bg-red-500/10 animate-pulse ml-2 shrink-0">PHO</div>
+              <div className="liquid-glass text-white/60 text-[8px] px-2 py-0.5 rounded-full ml-2 shrink-0 uppercase tracking-widest">PHO</div>
             )}
           </div>
-          <div className="grid grid-cols-2 gap-y-3">
-            <span className="text-white/40 text-[10px] uppercase">Diameter</span>
-            <span className="text-right text-orange-300 font-bold">
+          <div className="grid grid-cols-2 gap-y-2.5">
+            <span className="text-white/30 text-[10px] uppercase tracking-widest">Diameter</span>
+            <span className="text-right text-white/80 text-xs font-medium">
               {hoverInfo.data.estimatedDiameterKm >= 1
                 ? `${hoverInfo.data.estimatedDiameterKm.toFixed(2)} km`
                 : `${(hoverInfo.data.estimatedDiameterKm * 1000).toFixed(0)} m`}
             </span>
-            <span className="text-white/40 text-[10px] uppercase">Miss Distance</span>
+            <span className="text-white/30 text-[10px] uppercase tracking-widest">Miss Distance</span>
             <div className="text-right flex flex-col gap-0.5">
-              <span className="text-cyan-400 font-bold">{(hoverInfo.data.missDistanceKm / 384400).toFixed(2)} LD</span>
-              <span className="text-white/30 text-[10px]">{(hoverInfo.data.missDistanceKm / 149597870).toFixed(4)} AU</span>
+              <span className="text-white/80 text-xs font-medium">{(hoverInfo.data.missDistanceKm / 384400).toFixed(2)} LD</span>
+              <span className="text-white/30 text-[9px]">{(hoverInfo.data.missDistanceKm / 149597870).toFixed(4)} AU</span>
             </div>
-            <span className="text-white/40 text-[10px] uppercase">Velocity</span>
-            <span className="text-right text-white/70">{(hoverInfo.data.relativeVelocityKmh / 3600).toFixed(2)} km/s</span>
+            <span className="text-white/30 text-[10px] uppercase tracking-widest">Velocity</span>
+            <span className="text-right text-white/80 text-xs font-medium">{(hoverInfo.data.relativeVelocityKmh / 3600).toFixed(2)} km/s</span>
           </div>
-          <div className="mt-3 pt-3 border-t border-white/5 text-[9px] text-white/20 uppercase tracking-widest">
-            Click to analyse impact
+          <div className="mt-3 pt-2 border-t text-[9px] text-white/20 uppercase tracking-widest" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
+            Click to analyse
           </div>
         </div>
       )}
 
       {/* ── Navigation ─────────────────────────────────────────── */}
-      <nav className="fixed top-0 w-full p-6 lg:p-10 flex justify-between items-center z-[100] bg-gradient-to-b from-black/50 to-transparent pointer-events-none">
-        <div className="font-bold tracking-[0.2em] text-sm lg:text-lg">THE THREAT MATRIX</div>
-        <div className="hidden md:flex text-[10px] tracking-[0.3em] font-light uppercase opacity-50">NASA NEO API DATA</div>
+      <nav className="fixed top-0 w-full px-8 py-5 flex justify-between items-center z-[100] pointer-events-none"
+           style={{ background: 'linear-gradient(to bottom, rgba(5,2,2,0.6) 0%, transparent 100%)' }}>
+        <div className="font-bold tracking-widest text-sm uppercase text-white/80">The Threat Matrix</div>
+        <div className="hidden md:block text-[10px] tracking-[0.3em] font-light uppercase text-white/25">NASA NEO API</div>
       </nav>
 
       {/* ── 300vh Scroll Container ─────────────────────────────── */}
       <div className="relative z-10 w-full flex flex-col" style={{ height: '300vh' }}>
 
-        {/* Phase 0: Earth */}
+        {/* Phase 0 */}
         <section className="h-screen flex flex-col justify-center items-start px-12 md:px-24 pointer-events-none">
-          <div className="backdrop-blur-md bg-black/40 border border-white/10 p-8 rounded-2xl max-w-xl pointer-events-auto">
-            <h1 className="text-6xl font-bold mb-4 tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-500">
-              Our Pale Blue Dot.
+          <div className="liquid-glass-strong rounded-3xl p-8 max-w-xl pointer-events-auto">
+            <h1 className="text-5xl font-bold mb-4 text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-400" style={{ letterSpacing: '-0.03em' }}>
+              Our Pale<br />Blue Dot.
             </h1>
-            <p className="text-xl text-gray-300">
-              Hover over the globe. Humanity exists in a fragile orbital neighbourhood. Scroll to see what's out there.
+            <p className="text-white/60 text-lg leading-relaxed">
+              Hover over the globe. Scroll to reveal the threats.
             </p>
           </div>
         </section>
 
-        {/* Phase 1: Swarm */}
+        {/* Phase 1 */}
         <section className="h-screen flex flex-col justify-center items-end px-12 md:px-24 pointer-events-none">
-          <div className="backdrop-blur-md bg-black/40 border border-red-500/20 p-8 rounded-2xl max-w-xl text-right pointer-events-auto">
-            <h2 className="text-5xl font-bold mb-4 text-transparent bg-clip-text bg-gradient-to-r from-red-500 to-orange-400">
-              The Swarm Approaches
+          <div className="liquid-glass-strong rounded-3xl p-8 max-w-xl text-right pointer-events-auto">
+            <h2 className="text-5xl font-bold mb-4 text-white" style={{ letterSpacing: '-0.03em' }}>
+              The Swarm<br />Approaches.
             </h2>
-            <p className="text-xl text-gray-300">
-              Over 36,000 near-Earth objects are tracked right now. The media narrative suggests constant, civilization-ending danger.
+            <p className="text-white/60 text-lg leading-relaxed">
+              36,000+ near-Earth objects tracked. Media says constant danger. The data says otherwise.
             </p>
           </div>
         </section>
@@ -145,54 +315,63 @@ export default function Home() {
         {/* Phase 2: Graph + Timeline */}
         <section className="h-screen relative pointer-events-none">
           <div className="absolute top-8 left-1/2 -translate-x-1/2 text-center">
-            <p className="text-white/50 font-mono text-sm tracking-widest uppercase">1 week of real NASA data</p>
-            <p className="text-white/30 font-mono text-xs mt-1">Each dot is a real tracked asteroid. Hover to inspect, click to analyse.</p>
-          </div>
-          <div className="absolute bottom-28 left-1/2 -translate-x-1/2 text-white/25 font-mono text-xs tracking-widest uppercase">Miss Distance →</div>
-          <div className="absolute left-6 top-1/2 text-white/25 font-mono text-xs tracking-widest uppercase" style={{ writingMode: 'vertical-rl', transform: 'translateY(-50%) rotate(180deg)' }}>
-            Estimated Diameter →
+            <p className="text-white/40 font-mono text-xs tracking-widest uppercase">Live NASA data · hover to inspect · click to analyse</p>
           </div>
 
-          {/* Timeline UI */}
-          <div className="absolute bottom-10 left-0 right-0 z-50 flex justify-center px-4 pointer-events-auto">
-            <div className="backdrop-blur-md bg-black/60 border border-white/10 p-3 rounded-full flex flex-wrap justify-center gap-3 items-center max-w-4xl shadow-2xl">
-              <span className="text-gray-400 text-xs font-bold uppercase tracking-widest pl-4 hidden md:inline">
-                {timelineLoading ? '⟳ Loading…' : 'Timeframe:'}
+          {/* Axis labels */}
+          <div className="absolute bottom-28 left-1/2 -translate-x-1/2 text-white/20 font-mono text-[10px] tracking-widest uppercase">
+            Miss Distance →
+          </div>
+          <div className="absolute left-6 top-1/2 text-white/20 font-mono text-[10px] tracking-widest uppercase"
+               style={{ writingMode: 'vertical-rl', transform: 'translateY(-50%) rotate(180deg)' }}>
+            Diameter →
+          </div>
+
+          {/* ── Timeline ── */}
+          <div className="absolute bottom-8 left-0 right-0 flex justify-center px-4 pointer-events-auto">
+            <div className="liquid-glass rounded-full px-4 py-3 flex flex-wrap justify-center gap-2 items-center max-w-3xl">
+              <span className="text-white/25 text-[10px] font-mono uppercase tracking-widest hidden md:block px-2">
+                {timelineLoading ? '…' : 'Era'}
               </span>
 
               {[
-                { id: 'current',     label: 'Current Week',      date: undefined       },
-                { id: 'chelyabinsk', label: 'Chelyabinsk (2013)', date: '2013-02-11'   },
-                { id: 'apophis',     label: 'Apophis (2029)',     date: '2029-04-07'   },
+                { id: 'current',     label: 'This Week',          date: undefined       },
+                { id: 'chelyabinsk', label: 'Chelyabinsk 2013',   date: '2013-02-11'   },
+                { id: 'apophis',     label: 'Apophis 2029',       date: '2029-04-07'   },
               ].map((tl) => (
                 <button
                   key={tl.id}
                   onClick={() => loadDate(tl.date, tl.id)}
                   disabled={timelineLoading}
-                  className={`text-xs font-bold px-4 py-2 rounded-full transition-colors ${
-                    activeTimeline === tl.id
-                      ? 'bg-orange-500/30 text-orange-300 border border-orange-500/40'
-                      : 'bg-white/10 hover:bg-orange-500/20 text-white'
+                  className={`liquid-glass rounded-full px-4 py-1.5 text-[11px] font-medium tracking-wide transition-all ${
+                    activeTimeline === tl.id ? 'text-white' : 'text-white/40 hover:text-white/70'
                   }`}
+                  style={activeTimeline === tl.id ? { boxShadow: 'inset 0 1px 1px rgba(255,255,255,0.2), 0 0 12px rgba(255,255,255,0.05)' } : {}}
                 >
                   {tl.label}
                 </button>
               ))}
 
-              {/* Custom date picker */}
-              <div className="flex items-center bg-white/5 rounded-full px-3 py-1.5 border border-white/10 hover:border-orange-500/50 transition-colors">
-                <label htmlFor="custom-date" className="text-[10px] text-gray-400 uppercase tracking-wider mr-2">Custom:</label>
+              {/* Custom date — dark colour-scheme prevents white chrome popup */}
+              <div className="liquid-glass rounded-full px-3 py-1.5 flex items-center gap-2 hover:text-white/70 transition-colors">
+                <label htmlFor="custom-date" className="text-[10px] text-white/25 uppercase tracking-widest cursor-pointer">Date:</label>
                 <input
                   type="date"
                   id="custom-date"
                   disabled={timelineLoading}
-                  className="bg-transparent text-orange-300 text-xs font-bold focus:outline-none cursor-pointer"
+                  className="bg-transparent text-white/60 text-[11px] font-medium focus:outline-none cursor-pointer"
+                  style={{ colorScheme: 'dark' }}
                   onChange={(e) => { if (e.target.value) loadCustomDate(e.target.value); }}
+                  onWheel={(e) => {
+                    // Let wheel events pass through to the date field without fighting page scroll
+                    e.stopPropagation();
+                  }}
                 />
               </div>
             </div>
+
             {nasaData.length > 0 && (
-              <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-white/20 font-mono text-[9px]">
+              <div className="absolute -bottom-5 left-1/2 -translate-x-1/2 text-white/15 font-mono text-[9px]">
                 {nasaData.length} objects · {nasaData.filter(a => a.isPotentiallyHazardous).length} PHO
               </div>
             )}
@@ -201,176 +380,54 @@ export default function Home() {
       </div>
 
       {/* ── Narrative Section ──────────────────────────────────── */}
-      <section className="relative z-20 w-full min-h-screen bg-[#0a0505] pt-28 pb-20">
+      <section className="relative z-20 w-full min-h-screen pt-28 pb-20" style={{ background: '#0a0505' }}>
         <div className="max-w-3xl mx-auto px-8 md:px-16 mb-20 text-center">
-          <p className="text-white/30 font-mono text-[10px] tracking-[0.5em] uppercase mb-6">The Science</p>
-          <h2 className="text-4xl md:text-5xl font-bold tracking-tighter mb-6 text-white">The Reality of Planetary Defense</h2>
-          <p className="text-lg text-white/50 max-w-xl mx-auto leading-relaxed">
-            The graph above looks empty because space is staggeringly vast. Media hype relies on ignoring this scale.
+          <p className="text-white/25 font-mono text-[10px] tracking-[0.5em] uppercase mb-6">The Science</p>
+          <h2 className="text-white font-bold mb-6" style={{ fontSize: '2.5rem', letterSpacing: '-0.03em' }}>
+            The Reality of Planetary Defense
+          </h2>
+          <p className="text-white/40 text-lg max-w-xl mx-auto leading-relaxed">
+            The graph looks empty because space is staggeringly vast.
           </p>
         </div>
-        <div className="flex overflow-x-auto snap-x snap-mandatory gap-8 px-8 md:px-16 pb-8 w-full" style={{ scrollbarWidth: 'none' }}>
+
+        <div className="flex overflow-x-auto snap-x snap-mandatory gap-6 px-8 md:px-16 pb-8" style={{ scrollbarWidth: 'none' }}>
           {[
-            { date: 'Feb 15, 2013', title: 'The Chelyabinsk Event', body: 'A 20-meter asteroid entered the atmosphere above Russia completely undetected. It released 30× the energy of the Hiroshima bomb, injuring 1,500 people from shockwave-shattered glass. It came from the sun\'s blind spot — too small to track.', meta: 'Diameter: ~20m · Miss distance: 0 km · Detected: No' },
-            { date: 'Reading the Graph', title: 'The Empty Danger Quadrant', body: 'The top-left of the scatter plot — large and close — is completely empty. Every asteroid large enough to cause extinction-level damage has been identified and is tracked. They are all millions of miles away. None are on a collision course.', meta: 'Source: NASA CNEOS' },
-            { date: 'Sep 26, 2022', title: "NASA's DART Mission", body: 'The Double Asteroid Redirection Test deliberately collided a spacecraft with Dimorphos, a 160-meter moonlet, and changed its orbital period by 33 minutes — proving kinetic impactor technology works. We are no longer passive observers.', meta: 'Orbital change: 33 min · Confirmed by Hubble + Webb' },
-          ].map((card) => (
-            <article key={card.title} className="min-w-[80vw] md:min-w-[40vw] snap-center shrink-0 rounded-2xl p-8 flex flex-col gap-4 backdrop-blur-md bg-white/5 border border-red-500/20 hover:bg-white/10 transition-colors">
-              <p className="text-white/30 font-mono text-[10px] tracking-[0.3em] uppercase">{card.date}</p>
-              <h3 className="text-2xl font-bold text-orange-400 mb-4">{card.title}</h3>
-              <p className="text-gray-300 leading-relaxed">{card.body}</p>
-              <div className="mt-auto pt-4 border-t border-white/10">
-                <p className="text-white/20 font-mono text-[10px] tracking-widest uppercase">{card.meta}</p>
+            { date: 'Feb 15, 2013', title: 'Chelyabinsk', body: 'A 20-meter asteroid entered atmosphere above Russia undetected. 30× the energy of Hiroshima. 1,500 injuries from shockwave glass. The sun\'s blind spot claimed another victim.', meta: '~20m · 0 km miss · Undetected' },
+            { date: 'The Graph', title: 'Empty Danger Zone', body: 'The top-left — large and close — is completely empty. Not a rendering error. Every extinction-class asteroid is catalogued, tracked, and confirmed safe for the next 100 years.', meta: 'Source: NASA CNEOS' },
+            { date: 'Sep 26, 2022', title: 'DART Mission', body: 'NASA deliberately smashed a spacecraft into Dimorphos (160m moonlet) and changed its orbital period by 33 minutes. Kinetic impactor technology confirmed. We can deflect threats.', meta: '33 min orbital change · Hubble + Webb confirmed' },
+          ].map((c) => (
+            <article key={c.title} className="min-w-[78vw] md:min-w-[38vw] snap-center shrink-0 liquid-glass-strong rounded-3xl p-8 flex flex-col gap-4">
+              <p className="text-white/25 font-mono text-[10px] tracking-[0.3em] uppercase">{c.date}</p>
+              <h3 className="text-white font-bold text-xl" style={{ letterSpacing: '-0.02em' }}>{c.title}</h3>
+              <p className="text-white/50 text-sm leading-relaxed">{c.body}</p>
+              <div className="mt-auto pt-4 border-t" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+                <p className="text-white/20 font-mono text-[9px] tracking-widest uppercase">{c.meta}</p>
               </div>
             </article>
           ))}
           <div className="min-w-[4vw] shrink-0" />
         </div>
-        <div className="flex items-center justify-center gap-3 mt-8 opacity-25">
+
+        <div className="flex items-center justify-center gap-3 mt-8" style={{ opacity: 0.2 }}>
           <div className="w-6 h-px bg-white rounded" />
-          <span className="text-white font-mono text-[10px] tracking-[0.3em] uppercase">Swipe</span>
+          <span className="text-white font-mono text-[9px] tracking-[0.3em] uppercase">Swipe</span>
           <div className="w-6 h-px bg-white rounded" />
         </div>
+
         <div className="max-w-xl mx-auto px-8 mt-24 text-center">
-          <p className="text-white/15 font-mono text-[10px] tracking-[0.3em] uppercase mb-2">Data source</p>
           <p className="text-white/30 text-sm leading-relaxed">
-            Powered by live data from the{' '}
+            Live data from{' '}
             <a href="https://api.nasa.gov/" target="_blank" rel="noopener noreferrer" className="text-white/50 underline underline-offset-4 hover:text-white/70 transition-colors">
               NASA NeoWs API
             </a>
-            . All asteroid positions are real close-approach data.
           </p>
         </div>
       </section>
 
       {/* ── Kinetic Impact Overlay ─────────────────────────────── */}
       {selectedAsteroid && (
-        <div className="fixed inset-0 z-[200] bg-black/50 backdrop-blur-xl flex justify-center items-center p-4 md:p-12 overflow-y-auto">
-          <div className="bg-[#0a0505]/95 border border-red-500/30 rounded-3xl w-full max-w-5xl shadow-[0_0_50px_rgba(255,50,0,0.1)] overflow-hidden relative">
-
-            {/* Header */}
-            <div className="p-8 border-b border-white/10 flex justify-between items-start gap-4">
-              <div>
-                <h2 className="text-3xl md:text-4xl font-bold text-white mb-3 tracking-tight">{selectedAsteroid.name}</h2>
-                <div className="flex flex-wrap gap-2">
-                  <span className="bg-white/10 text-gray-300 px-3 py-1 rounded-full text-sm font-mono tracking-widest">
-                    {(selectedAsteroid.relativeVelocityKmh / 3600).toFixed(2)} km/s
-                  </span>
-                  <span className="bg-white/10 text-gray-300 px-3 py-1 rounded-full text-sm font-mono tracking-widest">
-                    {selectedAsteroid.estimatedDiameterKm >= 1
-                      ? `${selectedAsteroid.estimatedDiameterKm.toFixed(2)} km`
-                      : `${(selectedAsteroid.estimatedDiameterKm * 1000).toFixed(0)} m`}
-                  </span>
-                  {selectedAsteroid.isPotentiallyHazardous && (
-                    <span className="bg-red-500/20 text-red-400 border border-red-500/50 px-3 py-1 rounded-full text-sm font-bold tracking-widest animate-pulse">
-                      POTENTIALLY HAZARDOUS
-                    </span>
-                  )}
-                </div>
-              </div>
-              <button
-                onClick={() => setSelectedAsteroid(null)}
-                className="text-white/50 hover:text-white bg-white/5 hover:bg-white/15 rounded-full px-4 py-2 transition-colors font-mono text-xs tracking-widest uppercase shrink-0"
-              >
-                ← Back
-              </button>
-            </div>
-
-            {/* 2-Column Content */}
-            <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-white/5">
-
-              {/* Left: Threat Assessment */}
-              <div className="p-8 md:p-12">
-                <h3 className="text-xl font-bold text-orange-400 mb-8 tracking-tight">Threat Assessment</h3>
-
-                <div className="mb-8">
-                  <div className="text-[10px] text-white/30 uppercase tracking-widest mb-1 font-mono">Proximity</div>
-                  <div className="text-4xl text-cyan-400 font-bold mb-3">
-                    {(selectedAsteroid.missDistanceKm / 384400).toFixed(2)} LD
-                  </div>
-                  <p className="text-white/50 leading-relaxed text-sm">
-                    <span className="text-white/70 font-semibold">LD (Lunar Distance)</span> is the Earth–Moon gap: 384,400 km.
-                    This asteroid is passing at {(selectedAsteroid.missDistanceKm / 384400).toFixed(1)}× that distance.
-                    That's {(selectedAsteroid.missDistanceKm / 149597870).toFixed(4)} AU — the scale used to navigate the solar system.
-                  </p>
-                </div>
-
-                <div className="mb-8">
-                  <div className="text-[10px] text-white/30 uppercase tracking-widest mb-1 font-mono">Scale</div>
-                  <div className="text-4xl text-white font-bold mb-3">
-                    {(selectedAsteroid.estimatedDiameterKm * 1000).toFixed(0)} meters
-                  </div>
-                  <p className="text-white/50 leading-relaxed text-sm">
-                    Chelyabinsk (2013) was ~20 m. Tunguska (1908) was ~50 m. The Chicxulub impactor (dinosaurs) was ~10,000 m.
-                    Objects under 140 m rarely survive atmospheric entry intact.
-                  </p>
-                </div>
-
-                <div className="p-4 rounded-xl border border-white/5 bg-white/[0.02]">
-                  <div className="text-[10px] text-white/20 uppercase tracking-widest mb-1 font-mono">
-                    {selectedAsteroid.isPotentiallyHazardous ? 'PHO Status' : 'Not a PHO'}
-                  </div>
-                  <p className="text-white/40 text-sm leading-relaxed">
-                    {selectedAsteroid.isPotentiallyHazardous
-                      ? 'PHO (Potentially Hazardous Object): >140m in size and comes within 0.05 AU of Earth\'s orbit. PHO status means continuous monitoring — not an imminent threat.'
-                      : 'This object does not meet PHO criteria. Either too small (<140m), too distant (>0.05 AU), or both. No monitoring escalation warranted.'}
-                  </p>
-                </div>
-              </div>
-
-              {/* Right: Kinetic Math */}
-              <div className="p-8 md:p-12">
-                <h3 className="text-xl font-bold text-red-400 mb-8 tracking-tight">Impact Analysis</h3>
-
-                {/* Big yield number */}
-                <div className="p-6 bg-red-950/30 border border-red-500/20 rounded-2xl mb-8">
-                  <div className="text-[10px] text-red-400/60 uppercase tracking-widest mb-1 font-mono">Estimated Kinetic Yield</div>
-                  <div className="text-4xl text-red-400 font-bold mb-2">{calcYield(selectedAsteroid)}</div>
-                  <p className="text-red-200/40 text-xs leading-relaxed font-mono">
-                    E = ½mv² · density 3,000 kg/m³ · current velocity
-                  </p>
-                </div>
-
-                {/* Comparison table */}
-                <div className="space-y-3 mb-8">
-                  {[
-                    { ref: 'Hiroshima bomb',   mt: 0.000015, color: 'text-yellow-400' },
-                    { ref: 'Chelyabinsk 2013', mt: 0.5,      color: 'text-orange-400' },
-                    { ref: 'Castle Bravo test',mt: 15,       color: 'text-red-400'    },
-                    { ref: 'Tsar Bomba test',  mt: 50,       color: 'text-red-500'    },
-                  ].map(({ ref, mt, color }) => {
-                    const radiusM    = (selectedAsteroid.estimatedDiameterKm * 1000) / 2;
-                    const volume     = (4 / 3) * Math.PI * Math.pow(radiusM, 3);
-                    const mass       = volume * 3000;
-                    const velocityMs = selectedAsteroid.relativeVelocityKmh / 3.6;
-                    const asteroidMt = (0.5 * mass * Math.pow(velocityMs, 2)) / 4.184e15;
-                    const ratio      = asteroidMt / mt;
-                    return (
-                      <div key={ref} className="flex items-center gap-3">
-                        <div className="w-1.5 h-1.5 rounded-full bg-white/20 shrink-0" />
-                        <span className="text-white/40 text-xs flex-1">{ref}</span>
-                        <span className={`font-mono text-xs ${color}`}>
-                          {ratio >= 1000
-                            ? `${(ratio / 1000).toFixed(1)}k×`
-                            : ratio >= 1
-                            ? `${ratio.toFixed(1)}×`
-                            : `${(1 / ratio).toFixed(1)}× less`}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <div className="p-4 rounded-xl border border-white/5 bg-white/[0.02]">
-                  <p className="text-white/40 text-sm leading-relaxed">
-                    <span className="text-white/60 font-semibold">Remember the graph: </span>
-                    Every asteroid with a truly catastrophic yield sits safely in the right side of the scatter plot — millions of miles away. The danger quadrant remains empty.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <KineticOverlay a={selectedAsteroid} onClose={() => setSelectedAsteroid(null)} />
       )}
     </main>
   );
