@@ -4,31 +4,6 @@ import gsap from 'gsap';
 import { generateEarth, generateSwarm, generateMatrix, PARTICLE_COUNT } from '../utils/particleMath';
 import { fetchNasaData, NeoAsteroid } from '../utils/nasaApi';
 
-// --- Canvas-based 3D Sprite helper (no CSS2DRenderer needed) ---
-function createTextSprite(message: string, color = 'rgba(255, 80, 20, 0.9)') {
-  const canvas = document.createElement('canvas');
-  canvas.width = 512;
-  canvas.height = 128;
-  const ctx = canvas.getContext('2d')!;
-  ctx.clearRect(0, 0, 512, 128);
-  ctx.fillStyle = color;
-  ctx.font = 'bold 34px monospace';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(message, 256, 64);
-
-  const texture = new THREE.CanvasTexture(canvas);
-  const mat = new THREE.SpriteMaterial({
-    map: texture,
-    transparent: true,
-    opacity: 0.0,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
-  });
-  const sprite = new THREE.Sprite(mat);
-  sprite.scale.set(8, 2, 1);
-  return { sprite, material: mat };
-}
 
 export interface HoverInfo {
   data: NeoAsteroid;
@@ -62,12 +37,28 @@ export const ParticleScene: React.FC<ParticleSceneProps> = ({ onHover }) => {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     containerRef.current.appendChild(renderer.domElement);
 
-    // 2. Background Stars
+    // 2. Background Stars — circular texture so they render as dots, not squares
     const starGeo = new THREE.BufferGeometry();
     const starPos = new Float32Array(5000 * 3);
     for(let i=0; i < 5000 * 3; i++) starPos[i] = (Math.random() - 0.5) * 150;
     starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
-    const starMat = new THREE.PointsMaterial({ color: 0xffaaaa, size: 0.2, transparent: true, opacity: 0.5 });
+    const starCanvas = document.createElement('canvas');
+    starCanvas.width = 32; starCanvas.height = 32;
+    const starCtx = starCanvas.getContext('2d')!;
+    starCtx.beginPath();
+    starCtx.arc(16, 16, 16, 0, Math.PI * 2);
+    starCtx.fillStyle = '#ffffff';
+    starCtx.fill();
+    const starTexture = new THREE.CanvasTexture(starCanvas);
+    const starMat = new THREE.PointsMaterial({
+      color: 0xffaaaa,
+      size: 0.15,
+      transparent: true,
+      opacity: 0.6,
+      map: starTexture,
+      alphaTest: 0.1,
+      depthWrite: false,
+    });
     const stars = new THREE.Points(starGeo, starMat);
     scene.add(stars);
 
@@ -180,20 +171,16 @@ export const ParticleScene: React.FC<ParticleSceneProps> = ({ onHover }) => {
           vec4 mvPosition = modelViewMatrix * vec4(currentPos, 1.0);
           
           // Base size for Earth/Swarm/Matrix particles
-          float baseSize = 80.0; 
-          
-          // If it is a comet AND we are on the landing page, make it massive
-          if (aIsThreat > 0.5 && uProgress < 0.1) {
-              baseSize = 250.0;
-          }
+          float baseSize = 80.0;
 
-          // In the matrix state, make real data points larger and more visible
-          float t2 = clamp(uProgress - 1.0, 0.0, 1.0);
-          if (t2 > 0.5 && aDataFlag > 0.5) {
-              baseSize = 180.0; // Real NASA asteroids are prominent
+          if (aIsThreat > 0.5 && uProgress < 0.1) {
+              baseSize = 250.0; // Landing page comets
+          } else if (uProgress > 1.5 && aDataFlag > 0.5) {
+              baseSize = 400.0; // LARGE real NASA data points — easy raycaster targets
           }
 
           // Filler particles shrink to nothing when fully in the matrix state
+          float t2 = clamp(uProgress - 1.0, 0.0, 1.0);
           if (t2 > 0.8 && aDataFlag < 0.5) {
               baseSize = 0.0;
           }
@@ -222,77 +209,26 @@ export const ParticleScene: React.FC<ParticleSceneProps> = ({ onHover }) => {
     const particles = new THREE.Points(geometry, material);
     scene.add(particles);
 
-    // 6. Grid + Axis Labels (fade in at matrix state)
-    // Build a wireframe grid in the XY plane (matching the scatter plot data space)
+    // 6. Grid (fade in at matrix state) — XY plane matching scatter plot data space
     const gridGroup = new THREE.Group();
-
     const gridMat = new THREE.LineBasicMaterial({ color: 0x1a0808, transparent: true, opacity: 0 });
-
-    // Vertical lines (X axis divisions: -10 to 10, step 4)
     for (let x = -10; x <= 10; x += 4) {
       const geo = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(x, -5, -0.5),
-        new THREE.Vector3(x, 5, -0.5),
+        new THREE.Vector3(x, -5, -0.5), new THREE.Vector3(x, 5, -0.5),
       ]);
       gridGroup.add(new THREE.Line(geo, gridMat));
     }
-    // Horizontal lines (Y axis divisions: -5 to 5, step 2)
     for (let y = -5; y <= 5; y += 2) {
       const geo = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(-10, y, -0.5),
-        new THREE.Vector3(10, y, -0.5),
+        new THREE.Vector3(-10, y, -0.5), new THREE.Vector3(10, y, -0.5),
       ]);
       gridGroup.add(new THREE.Line(geo, gridMat));
     }
     scene.add(gridGroup);
 
-    // (Warning Mat removed — it conflicted with the page flow)
-
-    // Build axis label sprites
-    const axisGroup = new THREE.Group();
-
-    // X-Axis labels along the bottom
-    const xLabels = [
-      { text: '1 Lunar Dist.', x: -8 },
-      { text: '10 Lunar Dist.', x: -1 },
-      { text: '50M km', x: 7 },
-    ];
-    // Y-Axis labels along the left side
-    const yLabels = [
-      { text: '50m (House)', y: -3 },
-      { text: '150m (Stadium)', y: 0.5 },
-      { text: '1km (Extinction)', y: 4 },
-    ];
-
-    const allSprites: { material: THREE.SpriteMaterial }[] = [];
-
-    for (const l of xLabels) {
-      const { sprite, material: m } = createTextSprite(l.text);
-      sprite.position.set(l.x, -6.2, 0);
-      sprite.scale.set(6, 1.5, 1);
-      axisGroup.add(sprite);
-      allSprites.push({ material: m });
-    }
-    for (const l of yLabels) {
-      const { sprite, material: m } = createTextSprite(l.text, 'rgba(255, 120, 40, 0.85)');
-      sprite.position.set(-12, l.y, 0);
-      sprite.scale.set(7, 1.8, 1);
-      axisGroup.add(sprite);
-      allSprites.push({ material: m });
-    }
-
-    // Danger quadrant label
-    const { sprite: dangerLabel, material: dangerLabelMat } = createTextSprite('EMPTY DANGER ZONE', 'rgba(255, 40, 0, 0.9)');
-    dangerLabel.position.set(-6, 5.5, 0);
-    dangerLabel.scale.set(9, 2, 1);
-    axisGroup.add(dangerLabel);
-    allSprites.push({ material: dangerLabelMat });
-
-    scene.add(axisGroup);
-
     // 7. Interactive Raycaster Logic
     const raycaster = new THREE.Raycaster();
-    raycaster.params.Points!.threshold = 0.5; // generous hitbox for tiny points
+    raycaster.params.Points!.threshold = 2.5; // Large hitbox — points are tiny, this makes them clickable
     const mouse = new THREE.Vector2();
     const mathPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
 
@@ -339,24 +275,14 @@ export const ParticleScene: React.FC<ParticleSceneProps> = ({ onHover }) => {
          const matrixPhase = (scrollFraction - 0.5) * 2.0;
          gsap.to(particles.rotation, { y: matrixPhase * 0.5, x: matrixPhase * 0.2, duration: 0.5 });
 
-         // Sync grid, warning mat, and axis labels with matrix morph
+         // Sync grid with matrix morph
          const gridOpacity = Math.min(1, (matrixPhase - 0.2) * 2.5);
          const gridTarget = Math.max(0, gridOpacity);
          gsap.to(gridMat, { opacity: gridTarget * 0.4, duration: 0.4 });
-         for (const s of allSprites) {
-           gsap.to(s.material, { opacity: gridTarget * 0.9, duration: 0.5 });
-         }
-
-         // Rotate everything to follow the particles
-         gsap.to(axisGroup.rotation, { y: matrixPhase * 0.5, x: matrixPhase * 0.2, duration: 0.5 });
          gsap.to(gridGroup.rotation, { y: matrixPhase * 0.5, x: matrixPhase * 0.2, duration: 0.5 });
       } else {
          gsap.to(particles.rotation, { y: scrollFraction * Math.PI, x: 0, duration: 0.5 });
-         // Fade out grid when scrolling back up
          gsap.to(gridMat, { opacity: 0, duration: 0.3 });
-         for (const s of allSprites) {
-           gsap.to(s.material, { opacity: 0, duration: 0.3 });
-         }
       }
     };
 
