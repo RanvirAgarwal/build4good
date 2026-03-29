@@ -17,15 +17,20 @@ interface ParticleSceneProps {
   onClickAsteroid?: (asteroid: NeoAsteroid) => void;
   /** External NASA data — when changed, hot-swaps the GPU buffer */
   nasaData?: NeoAsteroid[];
+  /** Set to false to disable click detection (e.g. when an overlay is open) */
+  clickEnabled?: boolean;
 }
 
-export const ParticleScene: React.FC<ParticleSceneProps> = ({ onHover, onClickAsteroid, nasaData: externalNasaData }) => {
+export const ParticleScene: React.FC<ParticleSceneProps> = ({ onHover, onClickAsteroid, nasaData: externalNasaData, clickEnabled = true }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   // Refs shared between the scene useEffect and the buffer-update useEffect
   const geometryRef = useRef<THREE.BufferGeometry | null>(null);
   const particlesRef = useRef<THREE.Points | null>(null);
   // Internal nasaData mirror — updated by either internal fetch or external prop
   const nasaDataRef = useRef<NeoAsteroid[]>([]);
+  // Mutable ref so the stale-closure click handler can read current value
+  const clickEnabledRef = useRef(clickEnabled);
+  useEffect(() => { clickEnabledRef.current = clickEnabled; }, [clickEnabled]);
 
   // ── Effect 1: Build the Three.js scene once ──────────────────────────────
   useEffect(() => {
@@ -272,6 +277,7 @@ export const ParticleScene: React.FC<ParticleSceneProps> = ({ onHover, onClickAs
     };
 
     const onClick = (e: MouseEvent) => {
+      if (!clickEnabledRef.current) return;
       if (material.uniforms.uProgress.value < 1.8 || nasaDataRef.current.length === 0) return;
       const mx = (e.clientX / window.innerWidth) * 2 - 1;
       const my = -(e.clientY / window.innerHeight) * 2 + 1;
