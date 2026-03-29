@@ -125,13 +125,13 @@ export default function Home() {
           {/* Card 1 — Chelyabinsk */}
           <article className="min-w-[80vw] md:min-w-[40vw] snap-center shrink-0 rounded-2xl p-8 flex flex-col gap-4 backdrop-blur-md bg-white/5 border border-red-500/20 hover:bg-white/10 transition-colors">
             <p className="text-white/30 font-mono text-[10px] tracking-[0.3em] uppercase">Feb 15, 2013</p>
-            <h3 className="text-2xl font-bold tracking-tight text-red-400">
+            <h3 className="text-2xl font-bold text-orange-400 mb-4">
               The Chelyabinsk Event
             </h3>
             <p className="text-gray-300 leading-relaxed">
               A 20-meter asteroid entered the atmosphere above Russia completely undetected. It released 30 times the energy of the Hiroshima bomb, injuring 1,500 people from shockwave-shattered glass.
             </p>
-            <p className="text-gray-300/70 leading-relaxed">
+            <p className="text-gray-300 leading-relaxed">
               This was not a planet-killer. It was a house-sized fragment — too small for telescopes to track — that came from the sun's blind spot. The real risk has always been small, fast, and undetected.
             </p>
             <div className="mt-auto pt-4 border-t border-white/10">
@@ -142,13 +142,13 @@ export default function Home() {
           {/* Card 2 — The Danger Quadrant */}
           <article className="min-w-[80vw] md:min-w-[40vw] snap-center shrink-0 rounded-2xl p-8 flex flex-col gap-4 backdrop-blur-md bg-white/5 border border-red-500/20 hover:bg-white/10 transition-colors">
             <p className="text-white/30 font-mono text-[10px] tracking-[0.3em] uppercase">Reading the Graph</p>
-            <h3 className="text-2xl font-bold tracking-tight text-orange-400">
+            <h3 className="text-2xl font-bold text-orange-400 mb-4">
               The Empty Danger Quadrant
             </h3>
             <p className="text-gray-300 leading-relaxed">
               The top-left of the scatter plot — large and close — is completely empty. This is not a rendering error. It is the most important fact in planetary defense.
             </p>
-            <p className="text-gray-300/70 leading-relaxed">
+            <p className="text-gray-300 leading-relaxed">
               Every asteroid large enough to cause extinction-level damage has been identified and is being tracked. They are all millions of miles away. We know where every one of them will be for the next 100 years. None are on a collision course.
             </p>
             <div className="mt-auto pt-4 border-t border-white/10">
@@ -159,13 +159,13 @@ export default function Home() {
           {/* Card 3 — DART Mission */}
           <article className="min-w-[80vw] md:min-w-[40vw] snap-center shrink-0 rounded-2xl p-8 flex flex-col gap-4 backdrop-blur-md bg-white/5 border border-red-500/20 hover:bg-white/10 transition-colors">
             <p className="text-white/30 font-mono text-[10px] tracking-[0.3em] uppercase">Sep 26, 2022</p>
-            <h3 className="text-2xl font-bold tracking-tight text-orange-400">
+            <h3 className="text-2xl font-bold text-orange-400 mb-4">
               NASA's DART Mission
             </h3>
             <p className="text-gray-300 leading-relaxed">
               The Double Asteroid Redirection Test deliberately collided a spacecraft with Dimorphos, a 160-meter moonlet, and changed its orbital period by 33 minutes.
             </p>
-            <p className="text-gray-300/70 leading-relaxed">
+            <p className="text-gray-300 leading-relaxed">
               This proved kinetic impactor technology works. If we detect a threat decades in advance, we can nudge it off course. We are no longer passive observers.
             </p>
             <div className="mt-auto pt-4 border-t border-white/10">

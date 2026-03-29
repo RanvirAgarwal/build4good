@@ -164,13 +164,17 @@ export const ParticleScene: React.FC<ParticleSceneProps> = ({ onHover }) => {
             }
           }
 
-          // Fluid Mouse Repel
-          float dist = distance(currentPos, uMouse);
-          if (dist < 3.5) {
-            vec3 dir = normalize(currentPos - uMouse);
-            float force = smoothstep(3.5, 0.0, dist);
-            currentPos += dir * force * 1.5;
-            currentPos += vec3(-dir.y, dir.x, 0.0) * force * 0.8;
+          // Fluid Mouse Repel — ONLY active before the Matrix graph forms.
+          // When uProgress >= 1.5 the graph is forming; repel is disabled so the
+          // CPU Raycaster and GPU positions match exactly for hover detection.
+          if (uProgress < 1.5) {
+            float dist = distance(currentPos, uMouse);
+            if (dist < 3.5) {
+              vec3 dir = normalize(currentPos - uMouse);
+              float force = smoothstep(3.5, 0.0, dist);
+              currentPos += dir * force * 1.5;
+              currentPos += vec3(-dir.y, dir.x, 0.0) * force * 0.8;
+            }
           }
 
           vec4 mvPosition = modelViewMatrix * vec4(currentPos, 1.0);
@@ -242,19 +246,7 @@ export const ParticleScene: React.FC<ParticleSceneProps> = ({ onHover }) => {
     }
     scene.add(gridGroup);
 
-    // --- The Danger Quadrant "Warning Mat" ---
-    // A flat, glowing red footprint on the grid marking the empty close+massive zone
-    const warningMatGeo = new THREE.PlaneGeometry(8, 6);
-    const warningMatMaterial = new THREE.MeshBasicMaterial({
-      color: 0xff1100,
-      transparent: true,
-      opacity: 0.0,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-    });
-    const warningMat = new THREE.Mesh(warningMatGeo, warningMatMaterial);
-    warningMat.position.set(-6, 2, -0.4); // top-left quadrant of the data space
-    scene.add(warningMat);
+    // (Warning Mat removed — it conflicted with the page flow)
 
     // Build axis label sprites
     const axisGroup = new THREE.Group();
@@ -351,7 +343,6 @@ export const ParticleScene: React.FC<ParticleSceneProps> = ({ onHover }) => {
          const gridOpacity = Math.min(1, (matrixPhase - 0.2) * 2.5);
          const gridTarget = Math.max(0, gridOpacity);
          gsap.to(gridMat, { opacity: gridTarget * 0.4, duration: 0.4 });
-         gsap.to(warningMatMaterial, { opacity: gridTarget * 0.12, duration: 0.5 }); // subtle red glow
          for (const s of allSprites) {
            gsap.to(s.material, { opacity: gridTarget * 0.9, duration: 0.5 });
          }
@@ -359,12 +350,10 @@ export const ParticleScene: React.FC<ParticleSceneProps> = ({ onHover }) => {
          // Rotate everything to follow the particles
          gsap.to(axisGroup.rotation, { y: matrixPhase * 0.5, x: matrixPhase * 0.2, duration: 0.5 });
          gsap.to(gridGroup.rotation, { y: matrixPhase * 0.5, x: matrixPhase * 0.2, duration: 0.5 });
-         gsap.to(warningMat.rotation, { y: matrixPhase * 0.5, x: matrixPhase * 0.2, duration: 0.5 });
       } else {
          gsap.to(particles.rotation, { y: scrollFraction * Math.PI, x: 0, duration: 0.5 });
          // Fade out grid when scrolling back up
          gsap.to(gridMat, { opacity: 0, duration: 0.3 });
-         gsap.to(warningMatMaterial, { opacity: 0, duration: 0.3 });
          for (const s of allSprites) {
            gsap.to(s.material, { opacity: 0, duration: 0.3 });
          }
